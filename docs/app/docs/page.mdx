@@ -1,0 +1,47 @@
+# Getting Started
+
+## Installation
+
+### Requirements
+
+- Python 3.14+
+- Rust 1.74+ (for building from source)
+
+### Install from PyPI
+
+```bash
+pip install snmpkit
+```
+
+### Install from source
+
+```bash
+git clone https://github.com/achmedius/snmpkit
+cd snmpkit
+kyle setup    # First time: installs Rust, uv, bun, maturin
+kyle dev      # Build and install in dev mode
+```
+
+## Development Setup
+
+Requires [kyle](https://github.com/achmedius/kyle) task runner. Linux/macOS/Unix only.
+
+```bash
+# First time setup (installs all tools)
+kyle setup
+
+# Or if you have Rust, uv, bun already
+kyle setup:deps
+
+# Build and install in dev mode
+kyle dev
+
+# Run tests
+kyle test
+
+# Format code
+kyle format
+
+# Lint
+kyle lint
+```

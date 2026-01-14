@@ -1,0 +1,120 @@
+# kyle: toml
+name = "snmpkit"
+
+# Setup
+[tasks.setup]
+desc = "Install all development dependencies"
+run = "kyle setup:rust && kyle setup:uv && kyle setup:bun && kyle setup:maturin && kyle setup:deps"
+
+[tasks."setup:rust"]
+desc = "Install Rust via rustup"
+run = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
+
+[tasks."setup:uv"]
+desc = "Install uv package manager"
+run = "curl -LsSf https://astral.sh/uv/install.sh | sh"
+
+[tasks."setup:bun"]
+desc = "Install bun runtime"
+run = "curl -fsSL https://bun.sh/install | bash"
+
+[tasks."setup:maturin"]
+desc = "Install maturin build tool"
+run = "uv tool install maturin"
+
+[tasks."setup:deps"]
+desc = "Install project dependencies"
+run = "uv sync --extra dev && cd docs && bun install"
+
+# Build
+[tasks.build]
+desc = "Build release (Python + Rust)"
+run = "maturin build --release"
+
+[tasks.dev]
+desc = "Install in development mode"
+run = "maturin develop"
+
+# Test
+[tasks.test]
+desc = "Run all tests"
+run = "kyle test:rust && kyle test:python"
+
+[tasks."test:rust"]
+desc = "Run Rust tests"
+run = "cargo test"
+
+[tasks."test:python"]
+desc = "Run Python tests (parallel)"
+run = "uv run pytest -n auto"
+
+# Format (uvx to avoid triggering build)
+[tasks.format]
+desc = "Format all code"
+run = "kyle format:rust && kyle format:python && kyle format:docs"
+
+[tasks."format:rust"]
+desc = "Format Rust code"
+run = "cargo fmt"
+
+[tasks."format:python"]
+desc = "Format Python code"
+run = "uvx ruff check --fix . && uvx ruff format ."
+
+[tasks."format:docs"]
+desc = "Format docs code"
+run = "cd docs && bun run format"
+
+# Lint (uvx to avoid triggering build)
+[tasks.lint]
+desc = "Lint all code"
+run = "kyle lint:rust && kyle lint:python && kyle lint:docs"
+
+[tasks."lint:rust"]
+desc = "Lint Rust code"
+run = "cargo clippy -- -D warnings"
+
+[tasks."lint:python"]
+desc = "Lint Python code"
+run = "uvx ruff check ."
+
+[tasks."lint:docs"]
+desc = "Lint docs code"
+run = "cd docs && bun run lint"
+
+# Check (type checking)
+[tasks.check]
+desc = "Type check all code"
+run = "kyle check:rust && kyle check:python && kyle check:docs"
+
+[tasks."check:rust"]
+desc = "Type check Rust code"
+run = "cargo check && cargo clippy"
+
+[tasks."check:python"]
+desc = "Type check Python code"
+run = "uvx ruff check ."
+
+[tasks."check:docs"]
+desc = "Type check docs (tsgo)"
+run = "cd docs && bun run check"
+
+# Docs
+[tasks."docs:dev"]
+desc = "Start docs dev server"
+run = "cd docs && bun run dev"
+
+[tasks."docs:build"]
+desc = "Build docs for production"
+run = "cd docs && bun run build"
+
+# Clean
+[tasks.clean]
+desc = "Clean build artifacts"
+run = "cargo clean && rm -rf dist/ build/ *.egg-info .venv docs/.next docs/node_modules"
+
+# Publish
+[tasks.publish]
+desc = "Publish to PyPI"
+run = "maturin publish"
+deps = ["test", "lint"]

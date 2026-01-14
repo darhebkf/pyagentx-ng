@@ -1,0 +1,185 @@
+# snmpkit
+
+High-performance SNMP toolkit with Rust core and Python asyncio.
+
+## What is this?
+
+snmpkit is a Python library for SNMP operations:
+- **AgentX subagent** (RFC 2741) - Extend SNMP agents with custom data
+- **SNMP manager** (future) - Query SNMP devices (GET, SET, WALK)
+
+## Architecture
+
+Hybrid Rust/Python/TypeScript:
+- **Rust** - Performance-critical core (PDU encoding, OID trie, ASN.1)
+- **Python** - asyncio networking and user-facing API
+- **TypeScript** - Documentation site (Nextra)
+
+### Execution Modes
+
+We implement ALL modes. Users choose at runtime:
+
+| Mode | Implementation | User enables with |
+|------|----------------|-------------------|
+| Async (default) | asyncio + uvloop | `snmpkit.run(main())` + `await agent.start()` |
+| Sync | uvloop.run() | `agent.start_sync()` |
+| Data parallelism | Rust rayon | `Agent(parallel_encoding=True)` |
+| Thread parallelism | Python workers | `Agent(worker_threads=N)` |
+
+### Entry Points
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `snmpkit.run(coro)` | Blocking | Entry point for async apps (wraps uvloop.run) |
+| `agent.start()` | Async | Coroutine, use with `await` inside async code |
+| `agent.start_sync()` | Blocking | For sync scripts, uses uvloop internally |
+
+Users never need to import uvloop directly - snmpkit handles it.
+
+## Tech Stack
+
+| Component | Technology |
+|-----------|------------|
+| Core | Rust 2024 edition |
+| Bindings | PyO3 0.27 |
+| Build | maturin |
+| Python | 3.14+ (GIL-free) |
+| Async | asyncio + uvloop |
+| Docs | Nextra + Bun + Biome |
+| Task runner | Kyle |
+| Testing | pytest-xdist, cargo test |
+
+## Module Structure
+
+```
+snmpkit/
+├── core/          # Rust bindings (Oid, Value, VarBind)
+├── agent/         # AgentX subagent (Agent, Updater, SetHandler)
+└── manager/       # SNMP manager (Manager) - Priority 2
+```
+
+Import patterns:
+```python
+# High-level API (most users)
+from snmpkit.agent import Agent, Updater, SetHandler
+
+# Low-level Rust bindings (advanced)
+from snmpkit.core import Oid, Value, VarBind
+```
+
+## Key Files
+
+```
+snmpkit/
+├── src/                    # Rust core
+│   ├── lib.rs              # PyO3 module entry point
+│   ├── oid/                # OID type with radix trie
+│   ├── types/              # SNMP value types
+│   └── agentx/             # AgentX PDUs (RFC 2741)
+├── python/snmpkit/         # Python package
+│   ├── __init__.py
+│   ├── core/               # Rust bindings (built by maturin)
+│   └── agent/              # Python AgentX API
+├── docs/                   # TypeScript/Nextra docs
+│   ├── app/
+│   └── package.json
+├── Cargo.toml              # Rust config
+├── pyproject.toml          # Python config
+└── Kylefile                # Task runner
+```
+
+## Development
+
+Linux/macOS/Unix only. Requires [kyle](https://github.com/achmedius/kyle) task runner.
+
+**Important**: Always use `kyle` for all development tasks. Do NOT run `cargo`, `pytest`, `npm`, etc. directly.
+
+```bash
+# First time setup (installs Rust, uv, bun, maturin)
+kyle setup
+
+# Or just install project deps if tools are present
+kyle setup:deps
+
+kyle dev          # Build and install
+kyle test         # Run all tests
+kyle format          # Format all code
+kyle lint         # Lint all code
+kyle docs:dev     # Start docs server
+```
+
+## RFCs
+
+- RFC 2741: AgentX Protocol
+- RFC 3411-3418: SNMP Architecture
+
+## Code Quality
+
+### Rust Style
+
+- **Edition**: 2024
+- **Formatting**: `cargo fmt` (rustfmt defaults)
+- **Linting**: `cargo clippy` - all warnings addressed
+- **Error handling**: Use `Result<T, E>` with proper error types, no `unwrap()` in library code
+- **Derive macros**: Use `#[derive(Debug, Clone, PartialEq, Eq)]` where appropriate
+- **Visibility**: Prefer private by default, expose with `pub` only what's needed
+- **Testing**: Unit tests inline with `#[cfg(test)]`, integration tests in `tests/`
+- **No unsafe**: Avoid unless absolutely necessary and well-documented
+
+### Python Style
+
+- **Version**: 3.14+ (GIL-free threading)
+- **Formatting**: `ruff format`
+- **Linting**: `ruff check` (E, F, I rules)
+- **Type hints**: Full coverage with `pyright` strict mode
+- **Async**: async-first design, sync wrappers where needed
+- **Docstrings**: Google style for public API
+
+### TypeScript Style (docs)
+
+- **Formatting**: Biome
+- **Linting**: Biome check
+- **Type checking**: `tsgo --noEmit`
+
+### General Principles
+
+- Simple, readable code over clever code
+- No premature optimization
+- Test all public API
+- Roundtrip tests for encode/decode functions
+- Follow RFC specs exactly (2741 for AgentX, 3411+ for SNMP)
+
+## Related Projects
+
+- pyagentx3: Original AgentX library we're replacing
+- pysnmp: SNMP manager library (reference for manager features)
+
+## Documentation Maintenance
+
+**Important**: Update documentation alongside code changes.
+
+When modifying code:
+1. Update `guide.local.md` with implementation details
+2. Update `docs/public/llms.txt` with user-facing API changes
+3. Update this file (`llms.txt`) with architecture/structure changes
+
+Files to keep in sync:
+- `guide.local.md` - Detailed implementation guide
+- `llms.txt` (root) - Contributor overview
+- `docs/public/llms.txt` - User documentation
+
+## Next Steps
+
+Current progress: Rust core complete for AgentX (OID, Value, VarBind, all PDUs, PyO3 bindings).
+
+### Immediate (AgentX Python API)
+1. Create `Agent` class in `python/snmpkit/agent/`
+2. Create `Updater` base class with value setters
+3. Create `SetHandler` for SNMP SET operations
+4. Implement asyncio networking layer
+5. Add typed exceptions (`SnmpkitError` hierarchy)
+
+### Future (SNMP Manager)
+1. Implement SNMP PDUs in Rust (`src/snmp/`)
+2. Add ASN.1/BER encoding (`src/asn1/`)
+3. Create `Manager` class in `python/snmpkit/manager/`

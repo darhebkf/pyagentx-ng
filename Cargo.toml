@@ -1,0 +1,18 @@
+[package]
+name = "snmpkit"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = "0.27"
+bitflags = "2"
+rayon = { version = "1.10", optional = true }
+
+[features]
+extension-module = ["pyo3/extension-module"]
+parallel = ["rayon"]
+default = ["extension-module"]

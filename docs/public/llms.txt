@@ -1,0 +1,148 @@
+# snmpkit
+
+High-performance SNMP toolkit for Python.
+
+## Installation
+
+```bash
+pip install snmpkit
+```
+
+Requires Python 3.14+.
+
+## Quick Start
+
+### AgentX Subagent
+
+Extend an SNMP agent with custom data:
+
+```python
+from snmpkit.agent import Agent, Updater
+
+class MyUpdater(Updater):
+    async def update(self):
+        self.set_INTEGER("1.0", 42)
+        self.set_OCTETSTRING("2.0", "hello")
+
+agent = Agent()
+agent.register("1.3.6.1.4.1.12345", MyUpdater())
+
+# Async (default)
+await agent.start()
+
+# Or sync
+agent.start_sync()
+```
+
+### Low-Level Rust Bindings
+
+For advanced use cases, access the Rust core directly:
+
+```python
+from snmpkit.core import Oid, Value, VarBind
+
+# OID manipulation
+oid = Oid("1.3.6.1.4.1.12345")
+print(oid.parts)        # [1, 3, 6, 1, 4, 1, 12345]
+print(oid.parent())     # Oid("1.3.6.1.4.1")
+print(oid.child(1))     # Oid("1.3.6.1.4.1.12345.1")
+
+# SNMP values
+val = Value.Integer(42)
+val = Value.OctetString(b"hello")
+val = Value.Counter64(9999999999)
+val = Value.IpAddress(192, 168, 1, 1)
+
+# Variable bindings
+vb = VarBind(oid, val)
+```
+
+## API Reference
+
+### Agent
+
+```python
+Agent(
+    agent_id: str = "snmpkit",
+    socket_path: str = "/var/agentx/master",
+    parallel_encoding: bool = False,  # Enable Rust parallel encoding
+    worker_threads: int = 0,          # Enable Python thread pool
+    queue_size: int = 0,              # 0 = unbounded (prevents queue full)
+)
+```
+
+Methods:
+- `register(oid, updater, freq=10, context=None, priority=127)` - Register an OID subtree
+- `unregister(oid)` - Unregister an OID subtree
+- `start()` - Async coroutine, use with `await`
+- `start_sync()` - Blocking, uses uvloop internally
+- `stop()` - Stop the agent
+
+### Updater
+
+Base class for OID handlers. Override `update()` to provide values.
+
+```python
+class Updater:
+    async def update(self) -> None: ...
+
+    # Value setters
+    def set_INTEGER(self, oid: str, value: int) -> None
+    def set_OCTETSTRING(self, oid: str, value: str | bytes) -> None
+    def set_OBJECTIDENTIFIER(self, oid: str, value: str) -> None
+    def set_IPADDRESS(self, oid: str, value: str) -> None
+    def set_COUNTER32(self, oid: str, value: int) -> None
+    def set_GAUGE32(self, oid: str, value: int) -> None
+    def set_TIMETICKS(self, oid: str, value: int) -> None
+    def set_OPAQUE(self, oid: str, value: bytes) -> None
+    def set_COUNTER64(self, oid: str, value: int) -> None
+```
+
+### SetHandler
+
+For writable OIDs (SNMP SET operations):
+
+```python
+class SetHandler:
+    async def test(self, oid: str, value) -> bool: ...
+    async def commit(self, oid: str, value) -> None: ...
+    async def undo(self, oid: str) -> None: ...
+    async def cleanup(self, oid: str) -> None: ...
+```
+
+### Decorator API
+
+For simple cases:
+
+```python
+@agent.updater("1.3.6.1.4.1.12345", freq=10)
+async def my_updater(ctx):
+    ctx.set_INTEGER("1.0", 42)
+```
+
+## Execution Modes
+
+Default is async without parallelism. Enable others as needed:
+
+| Mode | When to use | Enable with |
+|------|-------------|-------------|
+| Async (default) | Most cases | `snmpkit.run(main())` + `await agent.start()` |
+| Sync | Simple scripts | `agent.start_sync()` |
+| Parallel encoding | 1000+ OIDs | `Agent(parallel_encoding=True)` |
+| Worker threads | CPU-heavy callbacks | `Agent(worker_threads=4)` |
+
+## Entry Points
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `snmpkit.run(coro)` | Blocking | Entry point for async apps (wraps uvloop) |
+| `agent.start()` | Async | Coroutine, use with `await` |
+| `agent.start_sync()` | Blocking | For sync scripts |
+
+Users never need to import uvloop directly.
+
+## Links
+
+- Documentation: https://snmpkit.dev
+- GitHub: https://github.com/anthropics/snmpkit
+- PyPI: https://pypi.org/project/snmpkit
