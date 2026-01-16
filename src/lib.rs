@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 
-mod agentx;
+pub mod agentx;
 pub mod oid;
 pub mod types;
 
