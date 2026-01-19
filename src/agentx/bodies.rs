@@ -687,7 +687,10 @@ mod tests {
         use crate::types::Value;
 
         let oid: Oid = "1.3.6.1.6.3.1.1.4.1.0".parse().unwrap();
-        let vb = VarBind::new(oid, Value::ObjectIdentifier("1.3.6.1.4.1.12345.1".parse().unwrap()));
+        let vb = VarBind::new(
+            oid,
+            Value::ObjectIdentifier("1.3.6.1.4.1.12345.1".parse().unwrap()),
+        );
         let pdu = NotifyPdu::new(vec![vb]);
 
         let mut buf = Vec::new();

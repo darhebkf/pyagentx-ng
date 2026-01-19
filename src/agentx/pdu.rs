@@ -1,3 +1,4 @@
+use pyo3::prelude::*;
 use std::io::{self, Read, Write};
 
 use crate::oid::Oid;
@@ -160,13 +161,13 @@ pub fn encode_value<W: Write>(writer: &mut W, value: &Value) -> io::Result<()> {
             encode_octet_string(&mut buf, v)?;
             (ValueType::OctetString as u16, Some(buf))
         }
-        Value::Null => (ValueType::Null as u16, None),
+        Value::Null() => (ValueType::Null as u16, None),
         Value::ObjectIdentifier(oid) => {
             let mut buf = Vec::new();
             encode_oid(&mut buf, oid, false)?;
             (ValueType::ObjectIdentifier as u16, Some(buf))
         }
-        Value::IpAddress(addr) => (ValueType::IpAddress as u16, Some(addr.octets().to_vec())),
+        Value::IpAddress(a, b, c, d) => (ValueType::IpAddress as u16, Some(vec![*a, *b, *c, *d])),
         Value::Counter32(v) => (ValueType::Counter32 as u16, Some(v.to_be_bytes().to_vec())),
         Value::Gauge32(v) => (ValueType::Gauge32 as u16, Some(v.to_be_bytes().to_vec())),
         Value::TimeTicks(v) => (ValueType::TimeTicks as u16, Some(v.to_be_bytes().to_vec())),
@@ -176,9 +177,9 @@ pub fn encode_value<W: Write>(writer: &mut W, value: &Value) -> io::Result<()> {
             (ValueType::Opaque as u16, Some(buf))
         }
         Value::Counter64(v) => (ValueType::Counter64 as u16, Some(v.to_be_bytes().to_vec())),
-        Value::NoSuchObject => (ValueType::NoSuchObject as u16, None),
-        Value::NoSuchInstance => (ValueType::NoSuchInstance as u16, None),
-        Value::EndOfMibView => (ValueType::EndOfMibView as u16, None),
+        Value::NoSuchObject() => (ValueType::NoSuchObject as u16, None),
+        Value::NoSuchInstance() => (ValueType::NoSuchInstance as u16, None),
+        Value::EndOfMibView() => (ValueType::EndOfMibView as u16, None),
     };
 
     writer.write_all(&type_code.to_be_bytes())?;
@@ -207,7 +208,7 @@ pub fn decode_value<R: Read>(reader: &mut R) -> io::Result<Value> {
             let data = decode_octet_string(reader)?;
             Value::OctetString(data)
         }
-        5 => Value::Null,
+        5 => Value::Null(),
         6 => {
             let (oid, _) = decode_oid(reader)?;
             Value::ObjectIdentifier(oid)
@@ -215,7 +216,7 @@ pub fn decode_value<R: Read>(reader: &mut R) -> io::Result<Value> {
         64 => {
             let mut buf = [0u8; 4];
             reader.read_exact(&mut buf)?;
-            Value::IpAddress(std::net::Ipv4Addr::from(buf))
+            Value::IpAddress(buf[0], buf[1], buf[2], buf[3])
         }
         65 => {
             let mut buf = [0u8; 4];
@@ -241,13 +242,13 @@ pub fn decode_value<R: Read>(reader: &mut R) -> io::Result<Value> {
             reader.read_exact(&mut buf)?;
             Value::Counter64(u64::from_be_bytes(buf))
         }
-        128 => Value::NoSuchObject,
-        129 => Value::NoSuchInstance,
-        130 => Value::EndOfMibView,
+        128 => Value::NoSuchObject(),
+        129 => Value::NoSuchInstance(),
+        130 => Value::EndOfMibView(),
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("unknown value type: {}", type_code),
+                format!("unknown value type: {type_code}"),
             ));
         }
     };
@@ -256,9 +257,24 @@ pub fn decode_value<R: Read>(reader: &mut R) -> io::Result<Value> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[pyclass]
 pub struct VarBind {
+    #[pyo3(get)]
     pub oid: Oid,
+    #[pyo3(get)]
     pub value: Value,
+}
+
+#[pymethods]
+impl VarBind {
+    #[new]
+    pub fn py_new(oid: Oid, value: Value) -> Self {
+        Self { oid, value }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("VarBind({}, {})", self.oid, self.value)
+    }
 }
 
 impl VarBind {

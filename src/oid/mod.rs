@@ -2,10 +2,13 @@ mod trie;
 
 pub use trie::OidTrie;
 
+use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
 use std::fmt;
 use std::str::FromStr;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[pyclass]
 pub struct Oid {
     parts: Vec<u32>,
 }
@@ -23,7 +26,7 @@ impl Oid {
     }
 
     fn __repr__(&self) -> String {
-        format!("Oid('{self}')")
+        format!("Oid('{}')", self)
     }
 
     fn __len__(&self) -> usize {

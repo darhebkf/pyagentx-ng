@@ -1,23 +1,26 @@
+use pyo3::prelude::*;
 use std::fmt;
 use std::net::Ipv4Addr;
 
 use crate::oid::Oid;
 
 #[derive(Clone, Debug, PartialEq)]
+#[pyclass]
 pub enum Value {
     Integer(i32),
     OctetString(Vec<u8>),
-    Null,
+    Null(),
     ObjectIdentifier(Oid),
-    IpAddress(Ipv4Addr),
+    #[pyo3(constructor = (_0, _1, _2, _3))]
+    IpAddress(u8, u8, u8, u8),
     Counter32(u32),
     Gauge32(u32),
     TimeTicks(u32),
     Opaque(Vec<u8>),
     Counter64(u64),
-    NoSuchObject,
-    NoSuchInstance,
-    EndOfMibView,
+    NoSuchObject(),
+    NoSuchInstance(),
+    EndOfMibView(),
 }
 
 impl Value {
@@ -38,7 +41,12 @@ impl Value {
     }
 
     pub fn ip_address(addr: Ipv4Addr) -> Self {
-        Value::IpAddress(addr)
+        let octets = addr.octets();
+        Value::IpAddress(octets[0], octets[1], octets[2], octets[3])
+    }
+
+    pub fn ip_address_from_octets(a: u8, b: u8, c: u8, d: u8) -> Self {
+        Value::IpAddress(a, b, c, d)
     }
 
     pub fn counter32(v: u32) -> Self {
@@ -65,17 +73,17 @@ impl Value {
         match self {
             Value::Integer(_) => "Integer",
             Value::OctetString(_) => "OctetString",
-            Value::Null => "Null",
+            Value::Null() => "Null",
             Value::ObjectIdentifier(_) => "ObjectIdentifier",
-            Value::IpAddress(_) => "IpAddress",
+            Value::IpAddress(_, _, _, _) => "IpAddress",
             Value::Counter32(_) => "Counter32",
             Value::Gauge32(_) => "Gauge32",
             Value::TimeTicks(_) => "TimeTicks",
             Value::Opaque(_) => "Opaque",
             Value::Counter64(_) => "Counter64",
-            Value::NoSuchObject => "NoSuchObject",
-            Value::NoSuchInstance => "NoSuchInstance",
-            Value::EndOfMibView => "EndOfMibView",
+            Value::NoSuchObject() => "NoSuchObject",
+            Value::NoSuchInstance() => "NoSuchInstance",
+            Value::EndOfMibView() => "EndOfMibView",
         }
     }
 
@@ -180,7 +188,8 @@ impl From<Oid> for Value {
 
 impl From<Ipv4Addr> for Value {
     fn from(addr: Ipv4Addr) -> Self {
-        Value::IpAddress(addr)
+        let o = addr.octets();
+        Value::IpAddress(o[0], o[1], o[2], o[3])
     }
 }
 

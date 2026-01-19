@@ -21,8 +21,8 @@ fn test_value_with_oid() {
 
 #[test]
 fn test_snmp_exceptions() {
-    let no_such = Value::NoSuchObject;
-    let end_of_mib = Value::EndOfMibView;
+    let no_such = Value::NoSuchObject();
+    let end_of_mib = Value::EndOfMibView();
 
     assert_eq!(no_such.to_string(), "noSuchObject");
     assert_eq!(end_of_mib.to_string(), "endOfMibView");

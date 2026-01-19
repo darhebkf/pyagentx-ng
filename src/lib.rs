@@ -4,9 +4,12 @@ pub mod agentx;
 pub mod oid;
 pub mod types;
 
-#[pymodule(name = "_core")]
+#[pymodule(name = "core")]
 fn snmpkit_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+    m.add_class::<oid::Oid>()?;
+    m.add_class::<types::Value>()?;
+    m.add_class::<agentx::pdu::VarBind>()?;
     Ok(())
 }
 
