@@ -1,7 +1,7 @@
 [project]
 name = "snmpkit"
-version = "1.0.0"
-description = "High-performance SNMP toolkit with Rust core - AgentX subagent and SNMP manager"
+version = "1.0.1"
+description = "High-performance SNMP toolkit for Python, powered by Rust"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.14"

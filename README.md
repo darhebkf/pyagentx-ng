@@ -1,34 +1,22 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/public/logo-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="docs/public/logo-light.svg">
-    <img src="docs/public/logo-light.svg" alt="SNMPKIT" width="280">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/darhebkf/snmpkit/refs/heads/main/docs/public/logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/darhebkf/snmpkit/refs/heads/main/docs/public/logo-light.svg">
+    <img src="https://raw.githubusercontent.com/darhebkf/snmpkit/refs/heads/main/docs/public/logo-light.svg" alt="SNMPKIT" width="280">
   </picture>
 </p>
 
 <p align="center">
-  <em>High-performance SNMP toolkit with Rust core and Python uvloop</em>
+  <em>High-performance SNMP toolkit for Python, powered by Rust</em>
 </p>
 
 ---
 
 ## Features
 
-- **AgentX subagent** (RFC 2741) - Extend SNMP agents with custom data
-- **SNMP manager** (planned) - Query SNMP devices (GET, SET, WALK)
-- **Async-first** - Built on asyncio + uvloop
+- **AgentX subagent**: Full RFC 2741 Compliance
 - **Fast** - Rust core for PDU encoding and OID operations
-- **Type-safe** - Full type hints throughout
-
-## Tech Stack
-
-| Component | Technology |
-|-----------|------------|
-| Core | Rust 2024 |
-| Python | 3.14+ (GIL-free) |
-| Docs | TypeScript / Nextra |
-| Build | maturin + uv |
-| Task runner | [kyle](https://github.com/achmedius/kyle) |
+- **Type-safe**: Full type hints throughout
 
 ## Installation
 

@@ -1,6 +1,6 @@
 # snmpkit
 
-High-performance SNMP toolkit for Python.
+High-performance SNMP toolkit for Python, powered by Rust.
 
 ## Installation
 

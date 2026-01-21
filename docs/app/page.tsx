@@ -171,7 +171,7 @@ export default function LandingPage() {
             animate={showContent ? { opacity: 1, y: 0 } : {}}
             transition={{ duration: 0.6 }}
           >
-            High-performance SNMP toolkit with Python powered by Rust
+            High-performance SNMP toolkit for Python, powered by Rust
           </motion.p>
 
           <motion.div

@@ -11,7 +11,7 @@ const geist = Geist({
 
 export const metadata = {
   title: "snmpkit",
-  description: "High-performance SNMP toolkit with Rust core",
+  description: "High-performance SNMP toolkit for Python, powered by Rust",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
