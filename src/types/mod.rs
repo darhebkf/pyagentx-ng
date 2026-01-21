@@ -130,6 +130,13 @@ impl Value {
     }
 }
 
+#[pymethods]
+impl Value {
+    fn __eq__(&self, other: &Self) -> bool {
+        self == other
+    }
+}
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
