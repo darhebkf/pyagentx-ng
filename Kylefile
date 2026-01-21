@@ -113,6 +113,11 @@ run = "cd docs && bun run build"
 desc = "Clean build artifacts"
 run = "cargo clean && rm -rf dist/ build/ *.egg-info .venv docs/.next docs/node_modules"
 
+# Pre-commit
+[tasks.pre-commit]
+desc = "Run pre-commit checks"
+run = "cargo fmt --check && cargo clippy -- -D warnings && uvx ruff check . && uvx ruff format --check ."
+
 # Publish
 [tasks.publish]
 desc = "Publish to PyPI"

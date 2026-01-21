@@ -1,11 +1,31 @@
 [project]
 name = "snmpkit"
-version = "0.1.0"
+version = "1.0.0"
 description = "High-performance SNMP toolkit with Rust core - AgentX subagent and SNMP manager"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.14"
 dependencies = ["uvloop>=0.21"]
+keywords = ["snmp", "agentx", "network", "monitoring", "rust"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Rust",
+    "Topic :: System :: Networking :: Monitoring",
+    "Topic :: System :: Systems Administration",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/darhebkf/snmpkit"
+Documentation = "https://github.com/darhebkf/snmpkit#readme"
+Repository = "https://github.com/darhebkf/snmpkit"
+Changelog = "https://github.com/darhebkf/snmpkit/blob/main/CHANGELOG.md"
+Issues = "https://github.com/darhebkf/snmpkit/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "pytest-xdist>=3.5", "ruff>=0.9"]
