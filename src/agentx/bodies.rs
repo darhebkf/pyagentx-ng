@@ -504,7 +504,7 @@ impl From<u16> for ResponseError {
 #[derive(Debug, Clone)]
 pub struct ResponsePdu {
     pub sys_uptime: u32,
-    pub error: ResponseError,
+    pub error: u16,
     pub index: u16,
     pub varbinds: Vec<VarBind>,
 }
@@ -513,13 +513,13 @@ impl ResponsePdu {
     pub fn new(sys_uptime: u32, varbinds: Vec<VarBind>) -> Self {
         Self {
             sys_uptime,
-            error: ResponseError::NoError,
+            error: 0,
             index: 0,
             varbinds,
         }
     }
 
-    pub fn error(sys_uptime: u32, error: ResponseError, index: u16) -> Self {
+    pub fn error(sys_uptime: u32, error: u16, index: u16) -> Self {
         Self {
             sys_uptime,
             error,
@@ -530,7 +530,7 @@ impl ResponsePdu {
 
     pub fn encode<W: Write>(&self, writer: &mut W) -> io::Result<()> {
         writer.write_all(&self.sys_uptime.to_be_bytes())?;
-        writer.write_all(&(self.error as u16).to_be_bytes())?;
+        writer.write_all(&self.error.to_be_bytes())?;
         writer.write_all(&self.index.to_be_bytes())?;
 
         for vb in &self.varbinds {
@@ -545,10 +545,9 @@ impl ResponsePdu {
         reader.read_exact(&mut header)?;
 
         let sys_uptime = u32::from_be_bytes([header[0], header[1], header[2], header[3]]);
-        let error = ResponseError::from(u16::from_be_bytes([header[4], header[5]]));
+        let error = u16::from_be_bytes([header[4], header[5]]);
         let index = u16::from_be_bytes([header[6], header[7]]);
 
-        // VarBinds would need payload length to know when to stop
         let varbinds = Vec::new();
 
         Ok(Self {

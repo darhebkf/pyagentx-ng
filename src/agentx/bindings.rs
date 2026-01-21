@@ -6,7 +6,7 @@ use crate::oid::Oid;
 
 use super::bodies::{
     ClosePdu, CloseReason, GetBulkPdu, GetPdu, NotifyPdu, OpenPdu, PingPdu, RegisterPdu,
-    ResponseError, ResponsePdu, TestSetPdu, UnregisterPdu,
+    ResponsePdu, TestSetPdu, UnregisterPdu,
 };
 use super::header::{Flags, HEADER_SIZE, Header, PduType};
 use super::pdu::VarBind;
@@ -243,7 +243,7 @@ pub fn encode_response_pdu(
     varbinds: Vec<VarBind>,
 ) -> PyResult<Py<PyBytes>> {
     let pdu = if error != 0 {
-        ResponsePdu::error(sys_uptime, ResponseError::from(error), index)
+        ResponsePdu::error(sys_uptime, error, index)
     } else {
         ResponsePdu::new(sys_uptime, varbinds)
     };
@@ -336,26 +336,19 @@ pub fn decode_response_pdu(data: &[u8], payload_len: usize) -> PyResult<AgentXRe
     let mut response = ResponsePdu::decode(&mut cursor)
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
 
-    // Decode varbinds if there's remaining payload
-    if payload_len > 8 {
-        let remaining = payload_len - 8;
-        let mut varbinds = Vec::new();
-        let mut bytes_read = 0;
-        while bytes_read < remaining {
-            match VarBind::decode(&mut cursor) {
-                Ok(vb) => {
-                    bytes_read += 8 + vb.oid.len() * 4 + 8;
-                    varbinds.push(vb);
-                }
-                Err(_) => break,
-            }
+    // Decode varbinds if there's remaining payload (8 bytes for response header)
+    let mut varbinds = Vec::new();
+    while (cursor.position() as usize) < payload_len {
+        match VarBind::decode(&mut cursor) {
+            Ok(vb) => varbinds.push(vb),
+            Err(_) => break,
         }
-        response.varbinds = varbinds;
     }
+    response.varbinds = varbinds;
 
     Ok(AgentXResponse {
         sys_uptime: response.sys_uptime,
-        error: response.error as u16,
+        error: response.error,
         index: response.index,
         varbinds: response.varbinds,
     })
