@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+}
+
+.x\:bg-primary-100 {
+  background-color: transparent !important;
+}
+
+.x\:dark\:bg-primary-400\/10:where(.dark *) {
+  background-color: transparent !important;
+}
+
+.x\:font-semibold {
+  font-weight: 500 !important;
+}

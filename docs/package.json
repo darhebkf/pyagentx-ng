@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next",
     "build": "next build",
+    "postbuild": "pagefind --site .next/server/app --output-path public/_pagefind",
     "start": "next start",
     "lint": "biome check .",
     "format": "biome check . --write",
@@ -15,16 +16,22 @@
     "@types/bun": "latest",
     "@types/react": "^19.2.8",
     "@types/react-dom": "^19.2.3",
-    "@typescript/native-preview": "^7.0.0-dev.20260114.1"
+    "@typescript/native-preview": "^7.0.0-dev.20260114.1",
+    "pagefind": "^1.4.0"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "cobe": "^0.6.5",
+    "motion": "^12.27.5",
     "next": "^16.1.1",
     "nextra": "^4.6.1",
     "nextra-theme-docs": "^4.6.1",
+    "postcss": "^8.5.6",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "react-dom": "^19.2.3",
+    "tailwindcss": "^4.1.18"
   }
 }
