@@ -26,7 +26,7 @@ impl Oid {
     }
 
     fn __repr__(&self) -> String {
-        format!("Oid('{}')", self)
+        format!("Oid('{self}')")
     }
 
     fn __len__(&self) -> usize {

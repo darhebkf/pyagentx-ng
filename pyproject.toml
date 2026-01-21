@@ -21,8 +21,8 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/darhebkf/snmpkit"
-Documentation = "https://github.com/darhebkf/snmpkit#readme"
+Homepage = "https://snmpkit.dev"
+Documentation = "https://snmpkit.dev"
 Repository = "https://github.com/darhebkf/snmpkit"
 Changelog = "https://github.com/darhebkf/snmpkit/blob/main/CHANGELOG.md"
 Issues = "https://github.com/darhebkf/snmpkit/issues"
