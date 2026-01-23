@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.0] - 2025-XX-XX
+## [1.0.1] - 2026-01-23
+
+### Fixed
+
+- README images now use raw GitHub URLs for PyPI compatibility
+
+## [1.0.0] - 2026-01-22
 
 ### Added
 
@@ -43,5 +49,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Python 3.14+
 - Rust 1.83.0+
 
-[Unreleased]: https://github.com/darhebkf/snmpkit/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/darhebkf/snmpkit/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/darhebkf/snmpkit/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/darhebkf/snmpkit/releases/tag/v1.0.0
