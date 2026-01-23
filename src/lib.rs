@@ -3,6 +3,7 @@ use pyo3::prelude::*;
 pub mod agentx;
 pub mod asn1;
 pub mod oid;
+pub mod snmp;
 pub mod types;
 
 #[pymodule(name = "core")]
