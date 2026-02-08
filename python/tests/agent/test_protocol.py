@@ -46,16 +46,16 @@ class TestProtocolInit:
 
     def test_default_values(self, protocol):
         """Protocol initializes with correct values."""
-        assert protocol._agent_id == "test-agent"
-        assert protocol._socket_path == "/var/agentx/master"
-        assert protocol._timeout == 5
-        assert protocol._session_id == 0
-        assert protocol._transaction_id == 0
-        assert protocol._packet_id == 0
+        assert protocol.agent_id == "test-agent"
+        assert protocol.socket_path == "/var/agentx/master"
+        assert protocol.timeout == 5
+        assert protocol.session_id == 0
+        assert protocol.transaction_id == 0
+        assert protocol.packet_id == 0
 
     def test_session_id_property(self, protocol):
         """session_id property returns _session_id."""
-        protocol._session_id = 42
+        protocol.session_id = 42
         assert protocol.session_id == 42
 
 
@@ -88,7 +88,7 @@ class TestProtocolSend:
         mock_writer = MagicMock()
         mock_writer.write = MagicMock()
         mock_writer.drain = AsyncMock()
-        protocol._writer = mock_writer
+        protocol.writer = mock_writer
 
         await protocol.send(b"test data")
 
@@ -112,7 +112,7 @@ class TestProtocolRecvPdu:
             raise asyncio.TimeoutError()
 
         mock_reader.read = timeout_read
-        protocol._reader = mock_reader
+        protocol.reader = mock_reader
 
         result = await protocol.recv_pdu(timeout=0.01)
         assert result is None
@@ -123,9 +123,9 @@ class TestProtocolOpenSession:
 
     async def test_open_session_success(self, protocol):
         """open_session establishes session on success."""
-        protocol._writer = MagicMock()
-        protocol._writer.write = MagicMock()
-        protocol._writer.drain = AsyncMock()
+        protocol.writer = MagicMock()
+        protocol.writer.write = MagicMock()
+        protocol.writer.drain = AsyncMock()
 
         with patch.object(protocol, "recv_pdu") as mock_recv:
             mock_recv.return_value = (MockHeader(session_id=42), b"")
@@ -134,13 +134,13 @@ class TestProtocolOpenSession:
 
                 await protocol.open_session()
 
-        assert protocol._session_id == 42
+        assert protocol.session_id == 42
 
     async def test_open_session_no_response_raises(self, protocol):
         """open_session raises ConnectionError on no response."""
-        protocol._writer = MagicMock()
-        protocol._writer.write = MagicMock()
-        protocol._writer.drain = AsyncMock()
+        protocol.writer = MagicMock()
+        protocol.writer.write = MagicMock()
+        protocol.writer.drain = AsyncMock()
 
         with patch.object(protocol, "recv_pdu", return_value=None):
             with pytest.raises(ConnectionError, match="No response"):
@@ -148,9 +148,9 @@ class TestProtocolOpenSession:
 
     async def test_open_session_wrong_pdu_type_raises(self, protocol):
         """open_session raises ProtocolError on wrong PDU type."""
-        protocol._writer = MagicMock()
-        protocol._writer.write = MagicMock()
-        protocol._writer.drain = AsyncMock()
+        protocol.writer = MagicMock()
+        protocol.writer.write = MagicMock()
+        protocol.writer.drain = AsyncMock()
 
         with patch.object(protocol, "recv_pdu") as mock_recv:
             mock_recv.return_value = (MockHeader(pdu_type=PduTypes.GET), b"")
@@ -159,9 +159,9 @@ class TestProtocolOpenSession:
 
     async def test_open_session_error_response_raises(self, protocol):
         """open_session raises ConnectionError on error response."""
-        protocol._writer = MagicMock()
-        protocol._writer.write = MagicMock()
-        protocol._writer.drain = AsyncMock()
+        protocol.writer = MagicMock()
+        protocol.writer.write = MagicMock()
+        protocol.writer.drain = AsyncMock()
 
         with patch.object(protocol, "recv_pdu") as mock_recv:
             mock_recv.return_value = (MockHeader(), b"")
@@ -180,15 +180,15 @@ class TestProtocolCloseSession:
 
     async def test_close_session_sends_close_pdu(self, protocol):
         """close_session sends Close PDU."""
-        protocol._session_id = 42
-        protocol._writer = MagicMock()
-        protocol._writer.write = MagicMock()
-        protocol._writer.drain = AsyncMock()
+        protocol.session_id = 42
+        protocol.writer = MagicMock()
+        protocol.writer.write = MagicMock()
+        protocol.writer.drain = AsyncMock()
 
         await protocol.close_session()
 
-        protocol._writer.write.assert_called_once()
-        assert protocol._session_id == 0
+        protocol.writer.write.assert_called_once()
+        assert protocol.session_id == 0
 
 
 class TestProtocolPing:
@@ -196,10 +196,10 @@ class TestProtocolPing:
 
     async def test_ping_success(self, protocol):
         """ping succeeds on valid response."""
-        protocol._session_id = 1
-        protocol._writer = MagicMock()
-        protocol._writer.write = MagicMock()
-        protocol._writer.drain = AsyncMock()
+        protocol.session_id = 1
+        protocol.writer = MagicMock()
+        protocol.writer.write = MagicMock()
+        protocol.writer.drain = AsyncMock()
 
         with patch.object(protocol, "recv_pdu") as mock_recv:
             mock_recv.return_value = (MockHeader(), b"")
@@ -207,10 +207,10 @@ class TestProtocolPing:
 
     async def test_ping_no_response_raises(self, protocol):
         """ping raises ConnectionError on no response."""
-        protocol._session_id = 1
-        protocol._writer = MagicMock()
-        protocol._writer.write = MagicMock()
-        protocol._writer.drain = AsyncMock()
+        protocol.session_id = 1
+        protocol.writer = MagicMock()
+        protocol.writer.write = MagicMock()
+        protocol.writer.drain = AsyncMock()
 
         with patch.object(protocol, "recv_pdu", return_value=None):
             with pytest.raises(ConnectionError, match="No response"):
@@ -231,10 +231,10 @@ class TestProtocolRegisterOid:
 
     async def test_register_oid_success(self, protocol, mock_registration):
         """register_oid succeeds on valid response."""
-        protocol._session_id = 1
-        protocol._writer = MagicMock()
-        protocol._writer.write = MagicMock()
-        protocol._writer.drain = AsyncMock()
+        protocol.session_id = 1
+        protocol.writer = MagicMock()
+        protocol.writer.write = MagicMock()
+        protocol.writer.drain = AsyncMock()
 
         with patch.object(protocol, "recv_pdu") as mock_recv:
             mock_recv.return_value = (MockHeader(), b"")
@@ -244,10 +244,10 @@ class TestProtocolRegisterOid:
 
     async def test_register_oid_no_response_raises(self, protocol, mock_registration):
         """register_oid raises RegistrationError on no response."""
-        protocol._session_id = 1
-        protocol._writer = MagicMock()
-        protocol._writer.write = MagicMock()
-        protocol._writer.drain = AsyncMock()
+        protocol.session_id = 1
+        protocol.writer = MagicMock()
+        protocol.writer.write = MagicMock()
+        protocol.writer.drain = AsyncMock()
 
         with patch.object(protocol, "recv_pdu", return_value=None):
             with pytest.raises(RegistrationError, match="No response"):
@@ -255,10 +255,10 @@ class TestProtocolRegisterOid:
 
     async def test_register_oid_error_response_raises(self, protocol, mock_registration):
         """register_oid raises RegistrationError on error response."""
-        protocol._session_id = 1
-        protocol._writer = MagicMock()
-        protocol._writer.write = MagicMock()
-        protocol._writer.drain = AsyncMock()
+        protocol.session_id = 1
+        protocol.writer = MagicMock()
+        protocol.writer.write = MagicMock()
+        protocol.writer.drain = AsyncMock()
 
         with patch.object(protocol, "recv_pdu") as mock_recv:
             mock_recv.return_value = (MockHeader(), b"")
@@ -273,17 +273,17 @@ class TestProtocolSendResponse:
 
     async def test_send_response_encodes_and_sends(self, protocol):
         """send_response encodes PDU and sends."""
-        protocol._writer = MagicMock()
-        protocol._writer.write = MagicMock()
-        protocol._writer.drain = AsyncMock()
+        protocol.writer = MagicMock()
+        protocol.writer.write = MagicMock()
+        protocol.writer.drain = AsyncMock()
 
         header = MockHeader(session_id=1, transaction_id=2, packet_id=3)
         varbinds = [VarBind(Oid("1.3.6.1"), Value.Integer(42))]
 
         await protocol.send_response(header, varbinds)
 
-        protocol._writer.write.assert_called_once()
-        protocol._writer.drain.assert_called_once()
+        protocol.writer.write.assert_called_once()
+        protocol.writer.drain.assert_called_once()
 
 
 class TestProtocolSendNotify:
@@ -291,16 +291,16 @@ class TestProtocolSendNotify:
 
     async def test_send_notify_encodes_and_sends(self, protocol):
         """send_notify encodes Notify PDU and sends."""
-        protocol._session_id = 1
-        protocol._writer = MagicMock()
-        protocol._writer.write = MagicMock()
-        protocol._writer.drain = AsyncMock()
+        protocol.session_id = 1
+        protocol.writer = MagicMock()
+        protocol.writer.write = MagicMock()
+        protocol.writer.drain = AsyncMock()
 
         varbinds = [VarBind(Oid("1.3.6.1.0.1"), Value.Integer(1))]
         await protocol.send_notify(varbinds)
 
-        protocol._writer.write.assert_called_once()
-        protocol._writer.drain.assert_called_once()
+        protocol.writer.write.assert_called_once()
+        protocol.writer.drain.assert_called_once()
 
 
 class TestProtocolDisconnect:
@@ -311,23 +311,23 @@ class TestProtocolDisconnect:
         mock_writer = MagicMock()
         mock_writer.close = MagicMock()
         mock_writer.wait_closed = AsyncMock()
-        protocol._writer = mock_writer
-        protocol._reader = MagicMock()
+        protocol.writer = mock_writer
+        protocol.reader = MagicMock()
 
         await protocol.disconnect()
 
         mock_writer.close.assert_called_once()
         mock_writer.wait_closed.assert_called_once()
-        assert protocol._writer is None
-        assert protocol._reader is None
+        assert protocol.writer is None
+        assert protocol.reader is None
 
     async def test_disconnect_clears_buffer(self, protocol):
         """disconnect clears receive buffer."""
-        protocol._recv_buf = b"leftover data"
-        protocol._writer = MagicMock()
-        protocol._writer.close = MagicMock()
-        protocol._writer.wait_closed = AsyncMock()
+        protocol.recv_buf = b"leftover data"
+        protocol.writer = MagicMock()
+        protocol.writer.close = MagicMock()
+        protocol.writer.wait_closed = AsyncMock()
 
         await protocol.disconnect()
 
-        assert protocol._recv_buf == b""
+        assert protocol.recv_buf == b""

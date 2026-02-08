@@ -34,11 +34,11 @@ class TestAgentInit:
     def test_default_values(self):
         """Agent initializes with default values."""
         agent = Agent()
-        assert agent._agent_id == "snmpkit"
-        assert agent._socket_path == "/var/agentx/master"
-        assert agent._timeout == 5
-        assert agent._parallel_encoding is False
-        assert agent._running is False
+        assert agent.agent_id == "snmpkit"
+        assert agent.socket_path == "/var/agentx/master"
+        assert agent.timeout == 5
+        assert agent.parallel_encoding is False
+        assert agent.running is False
 
     def test_custom_values(self):
         """Agent accepts custom initialization values."""
@@ -50,19 +50,19 @@ class TestAgentInit:
             worker_threads=4,
             queue_size=100,
         )
-        assert agent._agent_id == "custom"
-        assert agent._socket_path == "/custom/path"
-        assert agent._timeout == 10
-        assert agent._parallel_encoding is True
-        assert agent._worker_threads == 4
-        assert agent._queue_size == 100
+        assert agent.agent_id == "custom"
+        assert agent.socket_path == "/custom/path"
+        assert agent.timeout == 10
+        assert agent.parallel_encoding is True
+        assert agent.worker_threads == 4
+        assert agent.queue_size == 100
 
     def test_initial_state(self, agent):
         """Agent starts with empty registrations."""
-        assert agent._registrations == {}
-        assert agent._set_handlers == {}
-        assert agent._protocol is None
-        assert agent._tasks == []
+        assert agent.registrations == {}
+        assert agent.set_handlers == {}
+        assert agent.protocol is None
+        assert agent.tasks == []
 
 
 class TestAgentRegister:
@@ -74,9 +74,9 @@ class TestAgentRegister:
         agent.register("1.3.6.1.4.1.12345", updater)
 
         key = "1.3.6.1.4.1.12345:"
-        assert key in agent._registrations
-        assert agent._registrations[key].oid == "1.3.6.1.4.1.12345"
-        assert agent._registrations[key].updater is updater
+        assert key in agent.registrations
+        assert agent.registrations[key].oid == "1.3.6.1.4.1.12345"
+        assert agent.registrations[key].updater is updater
         assert updater._agent is agent
         assert updater._base_oid == "1.3.6.1.4.1.12345"
 
@@ -85,15 +85,15 @@ class TestAgentRegister:
         updater = MockUpdater()
         agent.register("1.3.6.1", updater, context="myctx")
 
-        assert "1.3.6.1:myctx" in agent._registrations
-        assert "1.3.6.1:" not in agent._registrations
+        assert "1.3.6.1:myctx" in agent.registrations
+        assert "1.3.6.1:" not in agent.registrations
 
     def test_register_with_freq(self, agent):
         """Register stores frequency."""
         updater = MockUpdater()
         agent.register("1.3.6.1", updater, freq=30)
 
-        reg = agent._registrations["1.3.6.1:"]
+        reg = agent.registrations["1.3.6.1:"]
         assert reg.freq == 30
 
     def test_register_with_priority(self, agent):
@@ -101,7 +101,7 @@ class TestAgentRegister:
         updater = MockUpdater()
         agent.register("1.3.6.1", updater, priority=50)
 
-        reg = agent._registrations["1.3.6.1:"]
+        reg = agent.registrations["1.3.6.1:"]
         assert reg.priority == 50
 
     def test_register_strips_oid(self, agent):
@@ -109,7 +109,7 @@ class TestAgentRegister:
         updater = MockUpdater()
         agent.register(" .1.3.6.1. ", updater)
 
-        assert "1.3.6.1:" in agent._registrations
+        assert "1.3.6.1:" in agent.registrations
 
     def test_register_invalid_oid_raises(self, agent):
         """Register raises ValueError for invalid OID."""
@@ -121,7 +121,7 @@ class TestAgentRegister:
         updater = MockUpdater()
         agent.register("1.3.6.1", updater, context="ctx1")
 
-        assert "ctx1" in agent._data_store._data
+        assert "ctx1" in agent.data_store._data
 
 
 class TestAgentRegisterSet:
@@ -133,8 +133,8 @@ class TestAgentRegisterSet:
         agent.register_set("1.3.6.1.4.1.12345", handler)
 
         key = "1.3.6.1.4.1.12345:"
-        assert key in agent._set_handlers
-        assert agent._set_handlers[key] is handler
+        assert key in agent.set_handlers
+        assert agent.set_handlers[key] is handler
         assert handler._agent is agent
         assert handler._base_oid == "1.3.6.1.4.1.12345"
 
@@ -143,7 +143,7 @@ class TestAgentRegisterSet:
         handler = SetHandler()
         agent.register_set("1.3.6.1", handler, context="setctx")
 
-        assert "1.3.6.1:setctx" in agent._set_handlers
+        assert "1.3.6.1:setctx" in agent.set_handlers
 
     def test_register_set_invalid_oid_raises(self, agent):
         """Register SET raises ValueError for invalid OID."""
@@ -157,18 +157,18 @@ class TestAgentUnregister:
     def test_unregister_updater(self, agent):
         """Unregister removes updater registration."""
         agent.register("1.3.6.1", MockUpdater())
-        assert "1.3.6.1:" in agent._registrations
+        assert "1.3.6.1:" in agent.registrations
 
         agent.unregister("1.3.6.1")
-        assert "1.3.6.1:" not in agent._registrations
+        assert "1.3.6.1:" not in agent.registrations
 
     def test_unregister_set_handler(self, agent):
         """Unregister removes SET handler."""
         agent.register_set("1.3.6.1", SetHandler())
-        assert "1.3.6.1:" in agent._set_handlers
+        assert "1.3.6.1:" in agent.set_handlers
 
         agent.unregister("1.3.6.1")
-        assert "1.3.6.1:" not in agent._set_handlers
+        assert "1.3.6.1:" not in agent.set_handlers
 
     def test_unregister_with_context(self, agent):
         """Unregister respects context."""
@@ -177,8 +177,8 @@ class TestAgentUnregister:
 
         agent.unregister("1.3.6.1", context="ctx1")
 
-        assert "1.3.6.1:ctx1" not in agent._registrations
-        assert "1.3.6.1:ctx2" in agent._registrations
+        assert "1.3.6.1:ctx1" not in agent.registrations
+        assert "1.3.6.1:ctx2" in agent.registrations
 
     def test_unregister_nonexistent_silent(self, agent):
         """Unregister non-existent OID does nothing."""
@@ -190,7 +190,7 @@ class TestAgentLifecycle:
 
     async def test_start_already_running_raises(self, agent):
         """Start raises if already running."""
-        agent._running = True
+        agent.running = True
 
         with pytest.raises(RuntimeError, match="already running"):
             await agent.start()
@@ -198,11 +198,11 @@ class TestAgentLifecycle:
     async def test_stop_not_running_silent(self, agent):
         """Stop does nothing if not running."""
         await agent.stop()  # Should not raise
-        assert not agent._running
+        assert not agent.running
 
     async def test_stop_cancels_tasks(self, agent):
         """Stop cancels all running tasks."""
-        agent._running = True
+        agent.running = True
         cancelled = False
 
         async def long_running():
@@ -214,27 +214,27 @@ class TestAgentLifecycle:
                 raise
 
         task = asyncio.create_task(long_running())
-        agent._tasks = [task]
+        agent.tasks = [task]
         await asyncio.sleep(0)  # Let task start
 
         await agent.stop()
 
         assert cancelled
-        assert agent._tasks == []
+        assert agent.tasks == []
 
     async def test_stop_closes_protocol(self, agent):
         """Stop closes protocol connection."""
-        agent._running = True
+        agent.running = True
         mock_protocol = MagicMock()
         mock_protocol.close_session = AsyncMock()
         mock_protocol.disconnect = AsyncMock()
-        agent._protocol = mock_protocol
+        agent.protocol = mock_protocol
 
         await agent.stop()
 
         mock_protocol.close_session.assert_called_once()
         mock_protocol.disconnect.assert_called_once()
-        assert agent._protocol is None
+        assert agent.protocol is None
 
 
 class TestAgentSendTrap:
@@ -251,7 +251,7 @@ class TestAgentSendTrap:
         """_send_trap calls protocol.send_notify."""
         mock_protocol = MagicMock()
         mock_protocol.send_notify = AsyncMock()
-        agent._protocol = mock_protocol
+        agent.protocol = mock_protocol
 
         await agent._send_trap("1.3.6.1.0.1", [])
 
@@ -265,15 +265,15 @@ class TestAgentUpdaterLoop:
         """_updater_loop calls updater.update()."""
         updater = MockUpdater({"1.0": 42})
         agent.register("1.3.6.1", updater)
-        reg = agent._registrations["1.3.6.1:"]
+        reg = agent.registrations["1.3.6.1:"]
         reg.freq = 0.01  # Short interval for test
 
-        agent._running = True
+        agent.running = True
 
         # Run one iteration then stop
         async def stop_after_delay():
             await asyncio.sleep(0.05)
-            agent._running = False
+            agent.running = False
 
         loop_task = asyncio.create_task(agent._updater_loop(reg))
         stop_task = asyncio.create_task(stop_after_delay())
@@ -281,7 +281,7 @@ class TestAgentUpdaterLoop:
         await asyncio.gather(loop_task, stop_task)
 
         # Check data was stored
-        vb = agent._data_store.get("1.3.6.1.1.0", None)
+        vb = agent.data_store.get("1.3.6.1.1.0", None)
         assert vb is not None
         assert vb.value == Value.Integer(42)
 

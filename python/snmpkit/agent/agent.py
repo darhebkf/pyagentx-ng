@@ -48,22 +48,22 @@ class Agent:
         worker_threads: int = 0,
         queue_size: int = 0,
     ) -> None:
-        self._agent_id = agent_id
-        self._socket_path = socket_path
-        self._timeout = timeout
-        self._parallel_encoding = parallel_encoding
-        self._worker_threads = worker_threads
-        self._queue_size = queue_size
+        self.agent_id = agent_id
+        self.socket_path = socket_path
+        self.timeout = timeout
+        self.parallel_encoding = parallel_encoding
+        self.worker_threads = worker_threads
+        self.queue_size = queue_size
 
-        self._registrations: dict[str, Registration] = {}
-        self._set_handlers: dict[str, SetHandler] = {}
+        self.registrations: dict[str, Registration] = {}
+        self.set_handlers: dict[str, SetHandler] = {}
 
-        self._protocol: Protocol | None = None
-        self._data_store = DataStore()
-        self._handler: RequestHandler | None = None
+        self.protocol: Protocol | None = None
+        self.data_store = DataStore()
+        self.handler: RequestHandler | None = None
 
-        self._running: bool = False
-        self._tasks: list[asyncio.Task] = []
+        self.running: bool = False
+        self.tasks: list[asyncio.Task] = []
 
     def register(
         self,
@@ -92,8 +92,8 @@ class Agent:
         updater._bind(self, oid)
 
         key = f"{oid}:{context or ''}"
-        self._registrations[key] = Registration(oid, updater, freq, context, priority)
-        self._data_store.init_context(context)
+        self.registrations[key] = Registration(oid, updater, freq, context, priority)
+        self.data_store.init_context(context)
 
         logger.debug("Registered OID %s (context=%s, freq=%d)", oid, context, freq)
 
@@ -120,7 +120,7 @@ class Agent:
         handler._bind(self, oid)
 
         key = f"{oid}:{context or ''}"
-        self._set_handlers[key] = handler
+        self.set_handlers[key] = handler
 
         logger.debug("Registered SET handler for OID %s", oid)
 
@@ -134,26 +134,26 @@ class Agent:
         oid = oid.strip(" .")
         key = f"{oid}:{context or ''}"
 
-        if key in self._registrations:
-            del self._registrations[key]
-        if key in self._set_handlers:
-            del self._set_handlers[key]
+        if key in self.registrations:
+            del self.registrations[key]
+        if key in self.set_handlers:
+            del self.set_handlers[key]
 
     async def start(self) -> None:
         """Start the agent (async)."""
-        if self._running:
+        if self.running:
             raise RuntimeError("Agent already running")
 
-        self._running = True
-        self._protocol = Protocol(self._agent_id, self._socket_path, self._timeout)
-        self._handler = RequestHandler(self._protocol, self._data_store, self._set_handlers)
+        self.running = True
+        self.protocol = Protocol(self.agent_id, self.socket_path, self.timeout)
+        self.handler = RequestHandler(self.protocol, self.data_store, self.set_handlers)
 
         try:
             await self._connect_and_register()
 
-            for reg in self._registrations.values():
+            for reg in self.registrations.values():
                 task = asyncio.create_task(self._updater_loop(reg))
-                self._tasks.append(task)
+                self.tasks.append(task)
 
             await self._request_loop()
         finally:
@@ -165,57 +165,57 @@ class Agent:
 
     async def stop(self) -> None:
         """Stop the agent gracefully."""
-        if not self._running:
+        if not self.running:
             return
 
         logger.info("Stopping agent...")
-        self._running = False
+        self.running = False
 
-        for task in self._tasks:
+        for task in self.tasks:
             task.cancel()
             try:
                 await task
             except asyncio.CancelledError:
                 pass
-        self._tasks.clear()
+        self.tasks.clear()
 
-        if self._protocol:
-            await self._protocol.close_session()
-            await self._protocol.disconnect()
-            self._protocol = None
+        if self.protocol:
+            await self.protocol.close_session()
+            await self.protocol.disconnect()
+            self.protocol = None
 
         logger.info("Agent stopped")
 
     async def _send_trap(self, oid: str, varbinds: list[VarBind]) -> None:
         """Send a trap/notification. Called by Updater.send_trap()."""
-        if self._protocol is None:
+        if self.protocol is None:
             raise SessionError("Not connected")
-        await self._protocol.send_notify(varbinds)
+        await self.protocol.send_notify(varbinds)
         logger.debug("Sent trap for %s", oid)
 
     async def _connect_and_register(self) -> None:
         """Connect to master and register all OIDs."""
-        if self._protocol is None:
+        if self.protocol is None:
             raise SessionError("Protocol not initialized")
 
-        await self._protocol.connect()
-        await self._protocol.open_session()
-        await self._protocol.ping()
+        await self.protocol.connect()
+        await self.protocol.open_session()
+        await self.protocol.ping()
 
-        for reg in self._registrations.values():
-            await self._protocol.register_oid(reg)
+        for reg in self.registrations.values():
+            await self.protocol.register_oid(reg)
 
     async def _reconnect(self) -> None:
         """Reconnect and re-register after connection loss."""
         logger.info("Reconnecting...")
 
-        if self._protocol:
-            await self._protocol.disconnect()
+        if self.protocol:
+            await self.protocol.disconnect()
 
-        self._protocol = Protocol(self._agent_id, self._socket_path, self._timeout)
-        self._handler = RequestHandler(self._protocol, self._data_store, self._set_handlers)
+        self.protocol = Protocol(self.agent_id, self.socket_path, self.timeout)
+        self.handler = RequestHandler(self.protocol, self.data_store, self.set_handlers)
 
-        while self._running:
+        while self.running:
             try:
                 await self._connect_and_register()
                 return
@@ -225,11 +225,11 @@ class Agent:
 
     async def _updater_loop(self, reg: Registration) -> None:
         """Run the updater loop for a registration."""
-        while self._running:
+        while self.running:
             try:
                 await reg.updater.update()
                 varbinds = reg.updater.get_varbinds()
-                self._data_store.update(reg.oid, reg.context, varbinds)
+                self.data_store.update(reg.oid, reg.context, varbinds)
                 logger.debug("Updated %s: %d values", reg.oid, len(varbinds))
             except Exception as e:
                 logger.error("Updater error for %s: %s", reg.oid, e)
@@ -238,12 +238,12 @@ class Agent:
 
     async def _request_loop(self) -> None:
         """Main loop to handle incoming requests."""
-        if self._protocol is None or self._handler is None:
+        if self.protocol is None or self.handler is None:
             raise SessionError("Not initialized")
 
-        while self._running:
+        while self.running:
             try:
-                result = await self._protocol.recv_pdu()
+                result = await self.protocol.recv_pdu()
                 if result is None:
                     continue
 
@@ -255,22 +255,22 @@ class Agent:
                 )
 
                 if header.pdu_type == PduTypes.GET:
-                    await self._handler.handle_get(header, payload)
+                    await self.handler.handle_get(header, payload)
                 elif header.pdu_type == PduTypes.GET_NEXT:
-                    await self._handler.handle_getnext(header, payload)
+                    await self.handler.handle_getnext(header, payload)
                 elif header.pdu_type == PduTypes.GET_BULK:
-                    await self._handler.handle_getbulk(header, payload)
+                    await self.handler.handle_getbulk(header, payload)
                 elif header.pdu_type == PduTypes.TEST_SET:
-                    await self._handler.handle_testset(header, payload)
+                    await self.handler.handle_testset(header, payload)
                 elif header.pdu_type == PduTypes.COMMIT_SET:
-                    await self._handler.handle_commitset(header)
+                    await self.handler.handle_commitset(header)
                 elif header.pdu_type == PduTypes.UNDO_SET:
-                    await self._handler.handle_undoset(header)
+                    await self.handler.handle_undoset(header)
                 elif header.pdu_type == PduTypes.CLEANUP_SET:
-                    await self._handler.handle_cleanupset(header)
+                    await self.handler.handle_cleanupset(header)
                 elif header.pdu_type == PduTypes.CLOSE:
                     logger.info("Received Close PDU from master")
-                    self._running = False
+                    self.running = False
                     break
                 else:
                     logger.warning("Unhandled PDU type: %d", header.pdu_type)
@@ -279,5 +279,5 @@ class Agent:
                 break
             except Exception as e:
                 logger.error("Request loop error: %s", e)
-                if self._running:
+                if self.running:
                     await self._reconnect()

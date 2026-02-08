@@ -19,12 +19,12 @@ class TestTransportInit:
 
     def test_default_values(self, transport):
         """Transport initializes with correct values."""
-        assert transport._host == "192.168.1.1"
-        assert transport._port == 161
-        assert transport._timeout == 2.0
-        assert transport._retries == 3
-        assert transport._transport is None
-        assert transport._protocol is None
+        assert transport.host == "192.168.1.1"
+        assert transport.port == 161
+        assert transport.timeout == 2.0
+        assert transport.retries == 3
+        assert transport.transport is None
+        assert transport.protocol is None
 
 
 class TestTransportConnect:
@@ -42,8 +42,8 @@ class TestTransportConnect:
 
             await transport.connect()
 
-            assert transport._transport is mock_transport
-            assert transport._protocol is mock_protocol
+            assert transport.transport is mock_transport
+            assert transport.protocol is mock_protocol
 
 
 class TestTransportClose:
@@ -52,19 +52,19 @@ class TestTransportClose:
     async def test_close_closes_transport(self, transport):
         """close closes the transport."""
         mock_transport = MagicMock()
-        transport._transport = mock_transport
-        transport._protocol = MagicMock()
+        transport.transport = mock_transport
+        transport.protocol = MagicMock()
 
         await transport.close()
 
         mock_transport.close.assert_called_once()
-        assert transport._transport is None
-        assert transport._protocol is None
+        assert transport.transport is None
+        assert transport.protocol is None
 
     async def test_close_when_not_connected(self, transport):
         """close does nothing when not connected."""
         await transport.close()
-        assert transport._transport is None
+        assert transport.transport is None
 
 
 class TestTransportSendRequest:
@@ -82,8 +82,8 @@ class TestTransportSendRequest:
         mock_protocol.clear = MagicMock()
         mock_protocol.wait_response = AsyncMock(return_value=b"\x30\x00response")
 
-        transport._transport = mock_transport
-        transport._protocol = mock_protocol
+        transport.transport = mock_transport
+        transport.protocol = mock_protocol
 
         result = await transport.send_request(b"request")
 
@@ -107,8 +107,8 @@ class TestTransportSendRequest:
 
         mock_protocol.wait_response = mock_wait
 
-        transport._transport = mock_transport
-        transport._protocol = mock_protocol
+        transport.transport = mock_transport
+        transport.protocol = mock_protocol
 
         result = await transport.send_request(b"request")
 
@@ -122,8 +122,8 @@ class TestTransportSendRequest:
         mock_protocol.clear = MagicMock()
         mock_protocol.wait_response = AsyncMock(side_effect=asyncio.TimeoutError())
 
-        transport._transport = mock_transport
-        transport._protocol = mock_protocol
+        transport.transport = mock_transport
+        transport.protocol = mock_protocol
 
         with pytest.raises(TimeoutError, match="timed out after 3 attempts"):
             await transport.send_request(b"request")

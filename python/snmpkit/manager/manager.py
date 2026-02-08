@@ -61,15 +61,15 @@ class Manager:
             timeout: Request timeout in seconds
             retries: Number of retry attempts
         """
-        self._host = host
-        self._port = port
-        self._community = community
-        self._version = version
-        self._timeout = timeout
-        self._retries = retries
+        self.host = host
+        self.port = port
+        self.community = community
+        self.version = version
+        self.timeout = timeout
+        self.retries = retries
 
-        self._transport: UdpTransport | None = None
-        self._request_id: int = random.randint(1, 2**31 - 1)
+        self.transport: UdpTransport | None = None
+        self.request_id: int = random.randint(1, 2**31 - 1)
 
     async def __aenter__(self) -> Self:
         await self.connect()
@@ -80,24 +80,24 @@ class Manager:
 
     async def connect(self) -> None:
         """Connect to the target device."""
-        self._transport = UdpTransport(
-            self._host,
-            self._port,
-            self._timeout,
-            self._retries,
+        self.transport = UdpTransport(
+            self.host,
+            self.port,
+            self.timeout,
+            self.retries,
         )
-        await self._transport.connect()
-        logger.info("Connected to %s:%d", self._host, self._port)
+        await self.transport.connect()
+        logger.info("Connected to %s:%d", self.host, self.port)
 
     async def close(self) -> None:
         """Close the connection."""
-        if self._transport:
-            await self._transport.close()
-            self._transport = None
+        if self.transport:
+            await self.transport.close()
+            self.transport = None
 
     def _next_request_id(self) -> int:
-        self._request_id = (self._request_id + 1) % (2**31)
-        return self._request_id
+        self.request_id = (self.request_id + 1) % (2**31)
+        return self.request_id
 
     async def get(self, oid: str) -> Value:
         """Get a single OID value.
@@ -120,18 +120,18 @@ class Manager:
         Returns:
             List of values in same order as requested OIDs
         """
-        if self._transport is None:
+        if self.transport is None:
             raise RuntimeError("Not connected")
 
         oid_objects = [Oid(o) for o in oids]
         request_id = self._next_request_id()
 
-        if self._version == 1:
-            request = encode_snmp_get_v1(self._community, request_id, oid_objects)
+        if self.version == 1:
+            request = encode_snmp_get_v1(self.community, request_id, oid_objects)
         else:
-            request = encode_snmp_get_v2c(self._community, request_id, oid_objects)
+            request = encode_snmp_get_v2c(self.community, request_id, oid_objects)
 
-        response_data = await self._transport.send_request(request)
+        response_data = await self.transport.send_request(request)
         response = decode_snmp_response(response_data)
 
         self._check_error(response.error_status, response.error_index)
@@ -152,18 +152,18 @@ class Manager:
         Returns:
             Tuple of (next_oid, value)
         """
-        if self._transport is None:
+        if self.transport is None:
             raise RuntimeError("Not connected")
 
         oid_obj = Oid(oid)
         request_id = self._next_request_id()
 
-        if self._version == 1:
-            request = encode_snmp_getnext_v1(self._community, request_id, [oid_obj])
+        if self.version == 1:
+            request = encode_snmp_getnext_v1(self.community, request_id, [oid_obj])
         else:
-            request = encode_snmp_getnext_v2c(self._community, request_id, [oid_obj])
+            request = encode_snmp_getnext_v2c(self.community, request_id, [oid_obj])
 
-        response_data = await self._transport.send_request(request)
+        response_data = await self.transport.send_request(request)
         response = decode_snmp_response(response_data)
 
         self._check_error(response.error_status, response.error_index)
@@ -192,24 +192,24 @@ class Manager:
         Returns:
             List of (oid, value) tuples
         """
-        if self._transport is None:
+        if self.transport is None:
             raise RuntimeError("Not connected")
 
-        if self._version == 1:
+        if self.version == 1:
             raise ValueError("GetBulk not supported in SNMPv1")
 
         oid_objects = [Oid(o) for o in oids]
         request_id = self._next_request_id()
 
         request = encode_snmp_getbulk_v2c(
-            self._community,
+            self.community,
             request_id,
             non_repeaters,
             max_repetitions,
             oid_objects,
         )
 
-        response_data = await self._transport.send_request(request)
+        response_data = await self.transport.send_request(request)
         response = decode_snmp_response(response_data)
 
         self._check_error(response.error_status, response.error_index)
@@ -229,22 +229,22 @@ class Manager:
             oid: OID to set
             value: Value to set
         """
-        if self._transport is None:
+        if self.transport is None:
             raise RuntimeError("Not connected")
 
-        if self._version == 1:
+        if self.version == 1:
             raise ValueError("SET not implemented for SNMPv1")
 
         request_id = self._next_request_id()
         varbind = SnmpVarBind(Oid(oid), value)
 
         request = encode_snmp_set_v2c(
-            self._community,
+            self.community,
             request_id,
             [varbind],
         )
 
-        response_data = await self._transport.send_request(request)
+        response_data = await self.transport.send_request(request)
         response = decode_snmp_response(response_data)
 
         self._check_error(response.error_status, response.error_index)

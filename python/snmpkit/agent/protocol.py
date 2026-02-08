@@ -38,81 +38,77 @@ class Protocol:
     """AgentX protocol handler for socket communication."""
 
     def __init__(self, agent_id: str, socket_path: str, timeout: int) -> None:
-        self._agent_id = agent_id
-        self._socket_path = socket_path
-        self._timeout = timeout
+        self.agent_id = agent_id
+        self.socket_path = socket_path
+        self.timeout = timeout
 
-        self._session_id: int = 0
-        self._transaction_id: int = 0
-        self._packet_id: int = 0
+        self.session_id: int = 0
+        self.transaction_id: int = 0
+        self.packet_id: int = 0
 
-        self._reader: asyncio.StreamReader | None = None
-        self._writer: asyncio.StreamWriter | None = None
-        self._recv_buf: bytes = b""
-
-    @property
-    def session_id(self) -> int:
-        return self._session_id
+        self.reader: asyncio.StreamReader | None = None
+        self.writer: asyncio.StreamWriter | None = None
+        self.recv_buf: bytes = b""
 
     def _next_packet_id(self) -> int:
-        self._packet_id += 1
-        return self._packet_id
+        self.packet_id += 1
+        return self.packet_id
 
     def _next_transaction_id(self) -> int:
-        self._transaction_id += 1
-        return self._transaction_id
+        self.transaction_id += 1
+        return self.transaction_id
 
     async def connect(self) -> None:
         """Connect to the AgentX master agent."""
-        logger.info("Connecting to %s", self._socket_path)
-        self._reader, self._writer = await asyncio.open_unix_connection(self._socket_path)
-        logger.info("Connected to %s", self._socket_path)
+        logger.info("Connecting to %s", self.socket_path)
+        self.reader, self.writer = await asyncio.open_unix_connection(self.socket_path)
+        logger.info("Connected to %s", self.socket_path)
 
     async def disconnect(self) -> None:
         """Close the socket connection."""
-        if self._writer:
+        if self.writer:
             try:
-                self._writer.close()
-                await self._writer.wait_closed()
+                self.writer.close()
+                await self.writer.wait_closed()
             except Exception:
                 pass
-        self._reader = None
-        self._writer = None
-        self._recv_buf = b""
+        self.reader = None
+        self.writer = None
+        self.recv_buf = b""
 
     async def send(self, data: bytes) -> None:
         """Send data to master agent."""
-        if self._writer is None:
+        if self.writer is None:
             raise SessionError("Not connected")
-        self._writer.write(data)
-        await self._writer.drain()
+        self.writer.write(data)
+        await self.writer.drain()
 
     async def recv_pdu(self, timeout: float = 0.1) -> tuple[object, bytes] | None:
         """Receive a complete PDU from master agent."""
-        if self._reader is None:
+        if self.reader is None:
             raise SessionError("Not connected")
 
-        while len(self._recv_buf) < HEADER_SIZE:
+        while len(self.recv_buf) < HEADER_SIZE:
             try:
-                chunk = await asyncio.wait_for(self._reader.read(4096), timeout=timeout)
+                chunk = await asyncio.wait_for(self.reader.read(4096), timeout=timeout)
                 if not chunk:
                     return None
-                self._recv_buf += chunk
+                self.recv_buf += chunk
             except asyncio.TimeoutError:
                 return None
 
-        header = decode_header(self._recv_buf[:HEADER_SIZE])
+        header = decode_header(self.recv_buf[:HEADER_SIZE])
         payload_len = header.payload_length
 
         total_len = HEADER_SIZE + payload_len
-        while len(self._recv_buf) < total_len:
-            chunk = await self._reader.read(total_len - len(self._recv_buf))
+        while len(self.recv_buf) < total_len:
+            chunk = await self.reader.read(total_len - len(self.recv_buf))
             if not chunk:
                 return None
-            self._recv_buf += chunk
+            self.recv_buf += chunk
 
-        payload = self._recv_buf[HEADER_SIZE:total_len]
-        self._recv_buf = self._recv_buf[total_len:]
+        payload = self.recv_buf[HEADER_SIZE:total_len]
+        self.recv_buf = self.recv_buf[total_len:]
 
         return header, payload
 
@@ -122,9 +118,9 @@ class Protocol:
             session_id=0,
             transaction_id=self._next_transaction_id(),
             packet_id=self._next_packet_id(),
-            timeout=self._timeout,
+            timeout=self.timeout,
             oid=Oid("1.3.6.1.4.1.0"),
-            description=self._agent_id,
+            description=self.agent_id,
         )
         await self.send(pdu)
         logger.debug("Sent Open PDU")
@@ -141,16 +137,16 @@ class Protocol:
         if response.is_error:
             raise ConnectionError(f"Open failed with error {response.error}")
 
-        self._session_id = header.session_id
-        logger.info("Session established: session_id=%d", self._session_id)
+        self.session_id = header.session_id
+        logger.info("Session established: session_id=%d", self.session_id)
 
     async def close_session(self, reason: int = CloseReasons.SHUTDOWN) -> None:
         """Send Close PDU and end session."""
-        if self._session_id == 0:
+        if self.session_id == 0:
             return
 
         pdu = encode_close_pdu(
-            session_id=self._session_id,
+            session_id=self.session_id,
             transaction_id=self._next_transaction_id(),
             packet_id=self._next_packet_id(),
             reason=reason,
@@ -161,12 +157,12 @@ class Protocol:
         except Exception as e:
             logger.warning("Failed to send Close PDU: %s", e)
 
-        self._session_id = 0
+        self.session_id = 0
 
     async def ping(self) -> None:
         """Send Ping PDU to verify connection."""
         pdu = encode_ping_pdu(
-            session_id=self._session_id,
+            session_id=self.session_id,
             transaction_id=self._next_transaction_id(),
             packet_id=self._next_packet_id(),
         )
@@ -184,12 +180,12 @@ class Protocol:
     async def register_oid(self, reg: Registration) -> None:
         """Send Register PDU for an OID subtree."""
         pdu = encode_register_pdu(
-            session_id=self._session_id,
+            session_id=self.session_id,
             transaction_id=self._next_transaction_id(),
             packet_id=self._next_packet_id(),
             subtree=Oid(reg.oid),
             priority=reg.priority,
-            timeout=self._timeout,
+            timeout=self.timeout,
             context=reg.context,
         )
         await self.send(pdu)
@@ -212,7 +208,7 @@ class Protocol:
     async def unregister_oid(self, oid: str, context: str | None, priority: int) -> None:
         """Send Unregister PDU for an OID subtree."""
         pdu = encode_unregister_pdu(
-            session_id=self._session_id,
+            session_id=self.session_id,
             transaction_id=self._next_transaction_id(),
             packet_id=self._next_packet_id(),
             subtree=Oid(oid),
@@ -254,7 +250,7 @@ class Protocol:
     async def send_notify(self, varbinds: list[VarBind]) -> None:
         """Send Notify PDU (trap)."""
         pdu = encode_notify_pdu(
-            session_id=self._session_id,
+            session_id=self.session_id,
             transaction_id=self._next_transaction_id(),
             packet_id=self._next_packet_id(),
             varbinds=varbinds,

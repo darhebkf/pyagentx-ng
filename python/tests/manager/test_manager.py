@@ -39,8 +39,8 @@ def manager():
 @pytest.fixture
 def connected_manager(manager):
     """Create a Manager with mocked transport."""
-    manager._transport = MagicMock()
-    manager._transport.send_request = AsyncMock(return_value=b"\x30\x00")
+    manager.transport = MagicMock()
+    manager.transport.send_request = AsyncMock(return_value=b"\x30\x00")
     return manager
 
 
@@ -50,13 +50,13 @@ class TestManagerInit:
     def test_default_values(self):
         """Manager initializes with default values."""
         mgr = Manager("10.0.0.1")
-        assert mgr._host == "10.0.0.1"
-        assert mgr._port == 161
-        assert mgr._community == "public"
-        assert mgr._version == 2
-        assert mgr._timeout == 5.0
-        assert mgr._retries == 3
-        assert mgr._transport is None
+        assert mgr.host == "10.0.0.1"
+        assert mgr.port == 161
+        assert mgr.community == "public"
+        assert mgr.version == 2
+        assert mgr.timeout == 5.0
+        assert mgr.retries == 3
+        assert mgr.transport is None
 
     def test_custom_values(self):
         """Manager accepts custom initialization values."""
@@ -68,12 +68,12 @@ class TestManagerInit:
             timeout=10.0,
             retries=5,
         )
-        assert mgr._host == "10.0.0.1"
-        assert mgr._port == 1161
-        assert mgr._community == "private"
-        assert mgr._version == 1
-        assert mgr._timeout == 10.0
-        assert mgr._retries == 5
+        assert mgr.host == "10.0.0.1"
+        assert mgr.port == 1161
+        assert mgr.community == "private"
+        assert mgr.version == 1
+        assert mgr.timeout == 10.0
+        assert mgr.retries == 5
 
 
 class TestManagerRequestId:
@@ -199,7 +199,7 @@ class TestManagerGetBulk:
     async def test_getbulk_v1_raises(self):
         """GETBULK on SNMPv1 raises ValueError."""
         mgr = Manager("10.0.0.1", version=1)
-        mgr._transport = MagicMock()
+        mgr.transport = MagicMock()
 
         with pytest.raises(ValueError, match="not supported in SNMPv1"):
             await mgr.get_bulk("1.3.6.1.2.1.2.2")
@@ -303,7 +303,7 @@ class TestManagerSet:
     async def test_set_v1_raises(self):
         """SET on SNMPv1 raises ValueError."""
         mgr = Manager("10.0.0.1", version=1)
-        mgr._transport = MagicMock()
+        mgr.transport = MagicMock()
 
         with pytest.raises(ValueError, match="not implemented for SNMPv1"):
             await mgr.set("1.3.6.1.2.1.1.5.0", Value.OctetString(b"newname"))
