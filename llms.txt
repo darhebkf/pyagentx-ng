@@ -1,30 +1,41 @@
 # snmpkit
 
-High-performance SNMP toolkit with Rust core and Python asyncio.
+Modern SNMP implementation in Rust with multi-language bindings.
 
 ## What is this?
 
-snmpkit is a Python library for SNMP operations:
-- **AgentX subagent** (RFC 2741) - Extend SNMP agents with custom data
-- **SNMP manager** (future) - Query SNMP devices (GET, SET, WALK)
+snmpkit is a cross-platform SNMP toolkit aiming to:
+1. Replace Net-SNMP with pure Rust implementation
+2. Provide multi-language bindings (Python, C#, Node.js, WASM, C/C++)
+3. Propose SNMPv4 streaming telemetry extension (RFC submission)
+4. Offer better CLI tools than Net-SNMP
+
+Current features:
+- **SNMP Manager** (RFC 3411+) - Query SNMP devices (GET, SET, WALK, BULK) - COMPLETE
+- **AgentX subagent** (RFC 2741) - Extend SNMP agents with custom data - COMPLETE
 
 ## Architecture
 
-Hybrid Rust/Python/TypeScript:
-- **Rust** - Performance-critical core (PDU encoding, OID trie, ASN.1)
-- **Python** - asyncio networking and user-facing API
-- **TypeScript** - Documentation site (Nextra)
+Rust core with multi-language bindings:
+- **Rust** - Performance-critical core (PDU encoding, OID trie, ASN.1, USM)
+- **Python** - asyncio networking and user-facing API (current)
+- **Node.js** - NAPI-RS bindings (planned)
+- **C#** - csbindgen FFI (planned)
+- **WASM** - wasm-bindgen for browser (planned)
+- **C/C++** - cbindgen headers (planned)
+- **CLI** - clap-based tools (planned)
 
-### Execution Modes
+### Multi-Language Binding Stack
 
-We implement ALL modes. Users choose at runtime:
-
-| Mode | Implementation | User enables with |
-|------|----------------|-------------------|
-| Async (default) | asyncio + uvloop | `snmpkit.run(main())` + `await agent.start()` |
-| Sync | uvloop.run() | `agent.start_sync()` |
-| Data parallelism | Rust rayon | `Agent(parallel_encoding=True)` |
-| Thread parallelism | Python workers | `Agent(worker_threads=N)` |
+| Target | Tool | Package Registry |
+|--------|------|------------------|
+| Rust | Native cargo | crates.io |
+| Python | PyO3 + Maturin | PyPI |
+| Node.js/Bun | NAPI-RS | npm (@snmpkit/native) |
+| Browser | wasm-bindgen + wasm-pack | npm (@snmpkit/wasm) |
+| C# | csbindgen | NuGet |
+| C/C++ | cbindgen | Headers only |
+| CLI | clap + cargo-dist | cargo install / binaries |
 
 ### Entry Points
 
@@ -45,6 +56,7 @@ Users never need to import uvloop directly - snmpkit handles it.
 | Build | maturin |
 | Python | 3.14+ (GIL-free) |
 | Async | asyncio + uvloop |
+| Async runtime | tokio (CLI/standalone) |
 | Docs | Nextra + Bun + Biome |
 | Task runner | Kyle |
 | Testing | pytest-xdist, cargo test |
@@ -53,18 +65,20 @@ Users never need to import uvloop directly - snmpkit handles it.
 
 ```
 snmpkit/
-├── core/          # Rust bindings (Oid, Value, VarBind)
-├── agent/         # AgentX subagent (Agent, Updater, SetHandler)
-└── manager/       # SNMP manager (Manager) - Priority 2
+├── core/          # Rust bindings (Oid, Value, VarBind, SNMP encode/decode)
+├── agent/         # AgentX subagent - COMPLETE
+└── manager/       # SNMP manager - COMPLETE
 ```
 
 Import patterns:
 ```python
 # High-level API (most users)
+from snmpkit.manager import Manager
 from snmpkit.agent import Agent, Updater, SetHandler
 
 # Low-level Rust bindings (advanced)
 from snmpkit.core import Oid, Value, VarBind
+from snmpkit.core import encode_snmp_get_v2c, decode_snmp_response
 ```
 
 ## Key Files
@@ -75,11 +89,19 @@ snmpkit/
 │   ├── lib.rs              # PyO3 module entry point
 │   ├── oid/                # OID type with radix trie
 │   ├── types/              # SNMP value types
-│   └── agentx/             # AgentX PDUs (RFC 2741)
+│   ├── asn1/               # ASN.1/BER encoding
+│   ├── agentx/             # AgentX PDUs (RFC 2741)
+│   └── snmp/               # SNMP PDUs (RFC 3411+)
+│       ├── pdu.rs          # PDU types
+│       ├── message.rs      # v1/v2c messages
+│       ├── v3.rs           # v3 messages
+│       ├── usm.rs          # USM security
+│       └── bindings.rs     # PyO3 bindings
 ├── python/snmpkit/         # Python package
 │   ├── __init__.py
 │   ├── core/               # Rust bindings (built by maturin)
-│   └── agent/              # Python AgentX API
+│   ├── agent/              # Python AgentX API
+│   └── manager/            # Python Manager API (in progress)
 ├── docs/                   # TypeScript/Nextra docs
 │   ├── app/
 │   └── package.json
@@ -103,7 +125,7 @@ kyle setup:deps
 
 kyle dev          # Build and install
 kyle test         # Run all tests
-kyle format          # Format all code
+kyle format       # Format all code
 kyle lint         # Lint all code
 kyle docs:dev     # Start docs server
 ```
@@ -112,6 +134,8 @@ kyle docs:dev     # Start docs server
 
 - RFC 2741: AgentX Protocol
 - RFC 3411-3418: SNMP Architecture
+- RFC 3826: AES for SNMPv3
+- RFC 7860: HMAC-SHA-2 for SNMPv3
 
 ## Code Quality
 
@@ -149,11 +173,6 @@ kyle docs:dev     # Start docs server
 - Roundtrip tests for encode/decode functions
 - Follow RFC specs exactly (2741 for AgentX, 3411+ for SNMP)
 
-## Related Projects
-
-- pyagentx3: Original AgentX library we're replacing
-- pysnmp: SNMP manager library (reference for manager features)
-
 ## Documentation Maintenance
 
 **Important**: Update documentation alongside code changes.
@@ -165,21 +184,23 @@ When modifying code:
 
 Files to keep in sync:
 - `guide.local.md` - Detailed implementation guide
+- `todo.local.md` - Architecture decisions and roadmap
+- `roadmap.local.txt` - Version roadmap
 - `llms.txt` (root) - Contributor overview
 - `docs/public/llms.txt` - User documentation
 
-## Next Steps
+## Version Roadmap
 
-Current progress: Rust core complete for AgentX (OID, Value, VarBind, all PDUs, PyO3 bindings).
+- **v1.0.1** - AgentX subagent (RELEASED)
+- **v1.1.0** - Python Manager API (COMPLETE - pending release)
+- **v1.2.0** - SNMPv3 Security (USM crypto)
+- **v2.0.0** - Pure Rust SNMP Stack
+- **v2.1.0** - CLI Tools
+- **v3.0.0** - Multi-Language Bindings
+- **v4.0.0** - SNMPv4 Streaming Telemetry (RFC Proposal)
 
-### Immediate (AgentX Python API)
-1. Create `Agent` class in `python/snmpkit/agent/`
-2. Create `Updater` base class with value setters
-3. Create `SetHandler` for SNMP SET operations
-4. Implement asyncio networking layer
-5. Add typed exceptions (`SnmpkitError` hierarchy)
+## Related Projects
 
-### Future (SNMP Manager)
-1. Implement SNMP PDUs in Rust (`src/snmp/`)
-2. Add ASN.1/BER encoding (`src/asn1/`)
-3. Create `Manager` class in `python/snmpkit/manager/`
+- Net-SNMP: https://net-snmp.org (reference, to replace)
+- pysnmp: https://github.com/lextudio/pysnmp (Python reference)
+- gNMI: https://github.com/openconfig/gnmi (telemetry reference)

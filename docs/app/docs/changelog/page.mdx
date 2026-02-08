@@ -2,6 +2,51 @@
 
 All notable changes to this project will be documented here.
 
+## [1.1.0] - 2026-02-08
+
+### Added
+
+**SNMP Manager API**
+- `Manager` class for querying SNMP devices
+- `get()`, `get_many()`, `get_next()`, `get_bulk()` operations
+- `walk()` async iterator for traversing OID subtrees
+- `set()` for SNMPv2c write operations
+- Full SNMPv1/v2c/v3 support with authentication and privacy
+- UDP transport with configurable timeouts and retries
+- Async context manager for connection lifecycle
+
+**Manager PDUs (RFC 3411-3418)**
+- SNMP GET/GETNEXT/GETBULK/SET request encoding
+- SNMPv3 security model with USM
+- Response decoding with error handling
+
+**ASN.1 BER Encoding**
+- Complete BER encoder for SNMP message construction
+- High-performance Rust implementation
+
+**Exception Hierarchy for Manager**
+- `NoSuchObjectError`, `NoSuchInstanceError`, `EndOfMibViewError`
+- `GenericError` with status and index
+
+**Performance**
+- 170,910 SNMP GET requests/sec
+- 108,857 SNMPv3 requests/sec
+- 389,342 AgentX PDUs/sec
+- 127x faster BER encoding than pure Python
+
+**Documentation**
+- Redesigned landing page with split layout
+- Interactive code snippet with Manager and Agent examples
+- One-click install command copy
+
+### Changed
+
+- All Python class attributes are now public (removed underscore prefix)
+  - `Manager`: `host`, `port`, `community`, `version`, `timeout`, `retries`, `transport`
+  - `Agent`: `agent_id`, `socket_path`, `timeout`, `registrations`, `protocol`
+  - `Protocol`: `session_id`, `transaction_id`, `packet_id`
+  - `UdpTransport`: `host`, `port`, `timeout`, `retries`, `transport`, `protocol`
+
 ## [1.0.1] - 2026-01-23
 
 ### Fixed
