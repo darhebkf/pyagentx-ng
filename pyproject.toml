@@ -49,3 +49,8 @@ select = ["E", "F", "I"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["python/tests"]
+
+[dependency-groups]
+dev = [
+    "pysnmp>=7.1.22",
+]

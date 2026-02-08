@@ -186,3 +186,112 @@ def decode_response_pdu(data: bytes, payload_len: int) -> AgentXResponse: ...
 def decode_get_pdu(data: bytes, payload_len: int) -> AgentXGet: ...
 def decode_getbulk_pdu(data: bytes, payload_len: int) -> AgentXGetBulk: ...
 def decode_testset_pdu(data: bytes, payload_len: int) -> AgentXTestSet: ...
+
+# SNMP Manager bindings
+
+class SnmpVarBind:
+    def __init__(self, oid: Oid, value: Value) -> None: ...
+    @property
+    def oid(self) -> Oid: ...
+    @property
+    def value(self) -> Value: ...
+    def __repr__(self) -> str: ...
+
+class SnmpResponse:
+    @property
+    def request_id(self) -> int: ...
+    @property
+    def error_status(self) -> int: ...
+    @property
+    def error_index(self) -> int: ...
+    @property
+    def varbinds(self) -> list[SnmpVarBind]: ...
+    @property
+    def is_error(self) -> bool: ...
+    @property
+    def error_message(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+class SnmpVersion:
+    V1: Final[int]
+    V2C: Final[int]
+    V3: Final[int]
+
+class SnmpErrorStatus:
+    NO_ERROR: Final[int]
+    TOO_BIG: Final[int]
+    NO_SUCH_NAME: Final[int]
+    BAD_VALUE: Final[int]
+    READ_ONLY: Final[int]
+    GEN_ERR: Final[int]
+    NO_ACCESS: Final[int]
+    WRONG_TYPE: Final[int]
+    WRONG_LENGTH: Final[int]
+    WRONG_ENCODING: Final[int]
+    WRONG_VALUE: Final[int]
+    NO_CREATION: Final[int]
+    INCONSISTENT_VALUE: Final[int]
+    RESOURCE_UNAVAILABLE: Final[int]
+    COMMIT_FAILED: Final[int]
+    UNDO_FAILED: Final[int]
+    AUTHORIZATION_ERROR: Final[int]
+    NOT_WRITABLE: Final[int]
+    INCONSISTENT_NAME: Final[int]
+
+def encode_snmp_get_v1(
+    community: str,
+    request_id: int,
+    oids: list[Oid],
+) -> bytes: ...
+def encode_snmp_getnext_v1(
+    community: str,
+    request_id: int,
+    oids: list[Oid],
+) -> bytes: ...
+def encode_snmp_get_v2c(
+    community: str,
+    request_id: int,
+    oids: list[Oid],
+) -> bytes: ...
+def encode_snmp_getnext_v2c(
+    community: str,
+    request_id: int,
+    oids: list[Oid],
+) -> bytes: ...
+def encode_snmp_getbulk_v2c(
+    community: str,
+    request_id: int,
+    non_repeaters: int,
+    max_repetitions: int,
+    oids: list[Oid],
+) -> bytes: ...
+def encode_snmp_set_v2c(
+    community: str,
+    request_id: int,
+    varbinds: list[SnmpVarBind],
+) -> bytes: ...
+def encode_snmp_get_v3(
+    msg_id: int,
+    request_id: int,
+    oids: list[Oid],
+    engine_id: bytes,
+    engine_boots: int,
+    engine_time: int,
+    user_name: str,
+    auth: bool = False,
+    priv_: bool = False,
+) -> bytes: ...
+def encode_snmp_getbulk_v3(
+    msg_id: int,
+    request_id: int,
+    non_repeaters: int,
+    max_repetitions: int,
+    oids: list[Oid],
+    engine_id: bytes,
+    engine_boots: int,
+    engine_time: int,
+    user_name: str,
+    auth: bool = False,
+    priv_: bool = False,
+) -> bytes: ...
+def decode_snmp_response(data: bytes) -> SnmpResponse: ...

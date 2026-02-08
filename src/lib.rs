@@ -68,6 +68,49 @@ fn snmpkit_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add("HEADER_SIZE", agentx::bindings::HEADER_SIZE_PY)?;
 
+    // SNMP protocol bindings
+    m.add_class::<snmp::bindings::PySnmpVarBind>()?;
+    m.add_class::<snmp::bindings::PySnmpResponse>()?;
+    m.add_class::<snmp::bindings::SnmpVersion>()?;
+    m.add_class::<snmp::bindings::SnmpErrorStatus>()?;
+
+    m.add_function(pyo3::wrap_pyfunction!(
+        snmp::bindings::encode_snmp_get_v1,
+        m
+    )?)?;
+    m.add_function(pyo3::wrap_pyfunction!(
+        snmp::bindings::encode_snmp_getnext_v1,
+        m
+    )?)?;
+    m.add_function(pyo3::wrap_pyfunction!(
+        snmp::bindings::encode_snmp_get_v2c,
+        m
+    )?)?;
+    m.add_function(pyo3::wrap_pyfunction!(
+        snmp::bindings::encode_snmp_getnext_v2c,
+        m
+    )?)?;
+    m.add_function(pyo3::wrap_pyfunction!(
+        snmp::bindings::encode_snmp_getbulk_v2c,
+        m
+    )?)?;
+    m.add_function(pyo3::wrap_pyfunction!(
+        snmp::bindings::encode_snmp_set_v2c,
+        m
+    )?)?;
+    m.add_function(pyo3::wrap_pyfunction!(
+        snmp::bindings::encode_snmp_get_v3,
+        m
+    )?)?;
+    m.add_function(pyo3::wrap_pyfunction!(
+        snmp::bindings::encode_snmp_getbulk_v3,
+        m
+    )?)?;
+    m.add_function(pyo3::wrap_pyfunction!(
+        snmp::bindings::decode_snmp_response,
+        m
+    )?)?;
+
     Ok(())
 }
 

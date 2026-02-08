@@ -1,3 +1,4 @@
+pub mod bindings;
 pub mod message;
 pub mod pdu;
 pub mod usm;
