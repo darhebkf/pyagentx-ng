@@ -69,10 +69,9 @@ function Logo({ onAnimationComplete }: { onAnimationComplete: () => void }) {
   return (
     <motion.svg
       xmlns="http://www.w3.org/2000/svg"
-      width="280"
-      height="60"
+      width="240"
+      height="52"
       viewBox="0 0 280 60"
-      className="mx-auto"
       role="img"
       aria-label="snmpkit logo"
     >
@@ -140,11 +139,163 @@ function CTA({ href, children }: { href: string; children: React.ReactNode }) {
   );
 }
 
+function InstallCommand() {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText("uv add snmpkit");
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="group flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 hover:bg-white/10 hover:border-white/20 transition-all cursor-pointer"
+    >
+      <span className="text-white/50 text-sm">$</span>
+      <code className="text-cyan-400 font-mono text-sm">uv add snmpkit</code>
+      <svg
+        className="w-4 h-4 ml-2 text-white/30 group-hover:text-white/50 transition-colors"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+        aria-label={copied ? "Copied" : "Copy to clipboard"}
+        role="img"
+      >
+        {copied ? (
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M5 13l4 4L19 7"
+          />
+        ) : (
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+          />
+        )}
+      </svg>
+    </button>
+  );
+}
+
+function CodeSnippet({ show }: { show: boolean }) {
+  return (
+    <motion.div
+      className="bg-[#0d1117] border border-white/10 rounded-xl overflow-hidden shadow-2xl"
+      initial={{ opacity: 0, x: 20 }}
+      animate={show ? { opacity: 1, x: 0 } : {}}
+      transition={{ duration: 0.6, delay: 0.3 }}
+    >
+      {/* Window controls */}
+      <div className="flex items-center gap-2 px-4 py-3 bg-white/5 border-b border-white/10">
+        <div className="w-3 h-3 rounded-full bg-red-500/80" />
+        <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
+        <div className="w-3 h-3 rounded-full bg-green-500/80" />
+        <span className="ml-3 text-white/40 text-xs font-mono">example.py</span>
+      </div>
+
+      {/* Code content */}
+      <pre className="p-4 lg:p-5 text-xs sm:text-sm font-mono leading-relaxed overflow-x-auto">
+        <code>
+          <span className="text-white/40"># Manager: Query SNMP devices</span>
+          {"\n"}
+          <span className="text-purple-400">from</span>
+          <span className="text-white/90"> snmpkit.manager </span>
+          <span className="text-purple-400">import</span>
+          <span className="text-white/90"> Manager</span>
+          {"\n\n"}
+          <span className="text-purple-400">async with</span>
+          <span className="text-cyan-400"> Manager</span>
+          <span className="text-white/90">(</span>
+          <span className="text-green-400">"192.168.1.1"</span>
+          <span className="text-white/90">) </span>
+          <span className="text-purple-400">as</span>
+          <span className="text-white/90"> mgr:</span>
+          {"\n"}
+          <span className="text-white/90"> value = </span>
+          <span className="text-purple-400">await</span>
+          <span className="text-white/90"> mgr.</span>
+          <span className="text-cyan-400">get</span>
+          <span className="text-white/90">(</span>
+          <span className="text-green-400">"1.3.6.1.2.1.1.1.0"</span>
+          <span className="text-white/90">)</span>
+          {"\n"}
+          <span className="text-white/90"> </span>
+          <span className="text-purple-400">async for</span>
+          <span className="text-white/90"> oid, val </span>
+          <span className="text-purple-400">in</span>
+          <span className="text-white/90"> mgr.</span>
+          <span className="text-cyan-400">walk</span>
+          <span className="text-white/90">(</span>
+          <span className="text-green-400">"1.3.6.1.2.1.2"</span>
+          <span className="text-white/90">):</span>
+          {"\n"}
+          <span className="text-white/90"> </span>
+          <span className="text-cyan-400">print</span>
+          <span className="text-white/90">(</span>
+          <span className="text-green-400">f"</span>
+          <span className="text-orange-400">{"{oid}"}</span>
+          <span className="text-green-400"> = </span>
+          <span className="text-orange-400">{"{val}"}</span>
+          <span className="text-green-400">"</span>
+          <span className="text-white/90">)</span>
+          {"\n\n"}
+          <span className="text-white/40">
+            # Agent: Expose custom OIDs via AgentX
+          </span>
+          {"\n"}
+          <span className="text-purple-400">from</span>
+          <span className="text-white/90"> snmpkit.agent </span>
+          <span className="text-purple-400">import</span>
+          <span className="text-white/90"> Agent, Updater</span>
+          {"\n\n"}
+          <span className="text-purple-400">class</span>
+          <span className="text-cyan-400"> MyUpdater</span>
+          <span className="text-white/90">(Updater):</span>
+          {"\n"}
+          <span className="text-white/90"> </span>
+          <span className="text-purple-400">async def</span>
+          <span className="text-cyan-400"> update</span>
+          <span className="text-white/90">(self):</span>
+          {"\n"}
+          <span className="text-white/90"> self.</span>
+          <span className="text-cyan-400">set_INTEGER</span>
+          <span className="text-white/90">(</span>
+          <span className="text-green-400">"1.0"</span>
+          <span className="text-white/90">, </span>
+          <span className="text-orange-400">42</span>
+          <span className="text-white/90">)</span>
+          {"\n\n"}
+          <span className="text-white/90">agent = </span>
+          <span className="text-cyan-400">Agent</span>
+          <span className="text-white/90">()</span>
+          {"\n"}
+          <span className="text-white/90">agent.</span>
+          <span className="text-cyan-400">register</span>
+          <span className="text-white/90">(</span>
+          <span className="text-green-400">"1.3.6.1.4.1.12345"</span>
+          <span className="text-white/90">, MyUpdater())</span>
+          {"\n"}
+          <span className="text-white/90">agent.</span>
+          <span className="text-cyan-400">start_sync</span>
+          <span className="text-white/90">()</span>
+        </code>
+      </pre>
+    </motion.div>
+  );
+}
+
 export default function LandingPage() {
   const [showContent, setShowContent] = useState(false);
 
   return (
-    <div className="h-screen w-screen overflow-hidden relative bg-black">
+    <div className="min-h-screen w-screen overflow-x-hidden overflow-y-auto relative bg-black">
       {/* Vignette overlay */}
       <div
         className="absolute inset-0 pointer-events-none z-10"
@@ -154,28 +305,49 @@ export default function LandingPage() {
         }}
       />
 
-      {/* Main content - stacked vertically */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center z-20">
-        {/* Globe above text */}
-        <div className="w-[360px] h-[360px]">
-          <Globe />
+      {/* Main content - split layout */}
+      <div className="relative min-h-screen flex flex-col-reverse lg:flex-row items-center justify-center z-20 px-6 lg:px-12 gap-6 lg:gap-10 py-12 lg:py-8">
+        {/* Left side - Code snippet */}
+        <div className="w-full max-w-sm sm:max-w-md lg:max-w-none lg:w-[460px] shrink-0">
+          <CodeSnippet show={showContent} />
         </div>
 
-        {/* Text content below globe */}
-        <div className="text-center space-y-4 mt-4">
+        {/* Right side - Globe, branding, install */}
+        <div className="flex flex-col items-center lg:items-start text-center lg:text-left space-y-4 lg:space-y-5 w-full max-w-sm sm:max-w-md lg:max-w-none lg:w-[360px] shrink-0">
+          {/* Globe */}
+          <div className="w-[180px] h-[180px] lg:w-[200px] lg:h-[200px]">
+            <Globe />
+          </div>
+
+          {/* Logo */}
           <Logo onAnimationComplete={() => setShowContent(true)} />
 
+          {/* Tagline */}
           <motion.p
-            className="text-white/70 text-base max-w-[280px] sm:max-w-none mx-auto"
+            className="text-white/70 text-sm lg:text-base max-w-[320px] lg:max-w-none"
             initial={{ opacity: 0, y: 10 }}
             animate={showContent ? { opacity: 1, y: 0 } : {}}
             transition={{ duration: 0.6 }}
           >
-            High-performance SNMP toolkit for Python, powered by Rust
+            High-performance SNMP toolkit for Python, powered by Rust.
+            <br />
+            <span className="text-white/50">
+              127x faster encoding. Full SNMPv1/v2c/v3 support.
+            </span>
           </motion.p>
 
+          {/* Install command */}
           <motion.div
-            className="flex gap-8 justify-center pt-2"
+            initial={{ opacity: 0, y: 10 }}
+            animate={showContent ? { opacity: 1, y: 0 } : {}}
+            transition={{ duration: 0.6, delay: 0.1 }}
+          >
+            <InstallCommand />
+          </motion.div>
+
+          {/* CTAs */}
+          <motion.div
+            className="flex gap-6 pt-1"
             initial={{ opacity: 0, y: 10 }}
             animate={showContent ? { opacity: 1, y: 0 } : {}}
             transition={{ duration: 0.6, delay: 0.2 }}
