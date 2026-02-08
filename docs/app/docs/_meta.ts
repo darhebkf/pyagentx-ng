@@ -5,6 +5,7 @@ export default {
   introduction: "Introduction",
   "getting-started": "Getting Started",
   agent: "Agent",
+  manager: "Manager",
   changelog: "Changelog",
   __: {
     type: "separator",

@@ -1,0 +1,434 @@
+import { Tabs, Callout } from 'nextra/components'
+
+# Troubleshooting
+
+Diagnose and fix common SNMP issues.
+
+## Common Errors
+
+### TimeoutError
+
+**Symptoms:** Request never completes, eventually raises `TimeoutError`.
+
+**Causes:**
+1. Device unreachable (network issue)
+2. Wrong IP address or port
+3. Firewall blocking UDP 161
+4. Device not running SNMP
+5. Device overloaded
+
+**Diagnosis:**
+
+```bash
+# Check connectivity
+ping 192.168.1.1
+
+# Check if SNMP port is open (might not respond without valid community)
+nc -vzu 192.168.1.1 161
+
+# Test with snmpget
+snmpget -v2c -c public 192.168.1.1 1.3.6.1.2.1.1.1.0
+```
+
+**Solutions:**
+
+```python
+# Increase timeout
+async with Manager("192.168.1.1", timeout=10.0, retries=5) as mgr:
+    pass
+
+# Check firewall allows UDP 161 outbound
+# Verify SNMP is enabled on device
+```
+
+### NoSuchObjectError / NoSuchInstanceError
+
+**Symptoms:** Request returns `noSuchObject` or `noSuchInstance`.
+
+**Causes:**
+1. OID doesn't exist on device
+2. OID exists but instance doesn't (missing `.0`)
+3. Device doesn't support that MIB
+
+**Diagnosis:**
+
+```bash
+# Walk parent OID to see what exists
+snmpwalk -v2c -c public 192.168.1.1 1.3.6.1.2.1.1
+
+# Check if it's a scalar (needs .0) or table
+```
+
+**Solutions:**
+
+```python
+# For scalar OIDs, add .0
+await mgr.get("1.3.6.1.2.1.1.1.0")  # sysDescr.0, not sysDescr
+
+# For tables, walk instead of get
+async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.2.2"):
+    pass
+```
+
+### AuthenticationError (SNMPv3)
+
+**Symptoms:** Request fails with authentication error.
+
+**Causes:**
+1. Wrong username
+2. Wrong auth password
+3. Wrong auth protocol
+4. Password not localized correctly
+
+**Diagnosis:**
+
+```bash
+# Test with snmpget
+snmpget -v3 -l authPriv -u admin -a SHA-256 -A "password" \
+    -x AES -X "privpass" 192.168.1.1 1.3.6.1.2.1.1.1.0
+```
+
+**Solutions:**
+
+```python
+# Verify credentials match device configuration
+user = USMUser(
+    username="admin",  # Case-sensitive!
+    auth_protocol=AuthProtocol.SHA256,  # Must match device
+    auth_key="exact_password",  # Must match device
+)
+```
+
+### TooBigError
+
+**Symptoms:** Request fails with "tooBig" error.
+
+**Causes:**
+1. Response exceeds max message size
+2. Too many OIDs in GETBULK
+
+**Solutions:**
+
+```python
+# Reduce bulk size
+async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.2.2", bulk_size=10):
+    pass
+
+# Split large get_many requests
+# Instead of: await mgr.get_many(*many_oids)
+chunks = [oids[i:i+10] for i in range(0, len(oids), 10)]
+for chunk in chunks:
+    await mgr.get_many(*chunk)
+```
+
+## Enable Debug Logging
+
+```python
+import logging
+
+# Enable all debug output
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s %(name)s %(levelname)s: %(message)s",
+)
+
+# Or just snmpkit
+logging.getLogger("snmpkit").setLevel(logging.DEBUG)
+```
+
+Debug output shows:
+- PDU encoding/decoding
+- Request/response timing
+- Retry attempts
+- Engine discovery (v3)
+
+## Packet Capture
+
+### Wireshark
+
+Capture SNMP traffic:
+
+```bash
+# Capture on interface
+sudo tcpdump -i eth0 -w snmp.pcap port 161
+
+# Open in Wireshark
+wireshark snmp.pcap
+```
+
+Wireshark decodes SNMP packets showing:
+- Community string (v1/v2c)
+- OIDs requested
+- Values returned
+- Error status
+
+### tcpdump Quick Check
+
+```bash
+# See SNMP traffic in real-time
+sudo tcpdump -i any -n port 161
+
+# With packet contents
+sudo tcpdump -i any -n -X port 161
+```
+
+## SNMPv3 Troubleshooting
+
+### Engine Discovery Issues
+
+```python
+from snmpkit.manager.exceptions import EngineDiscoveryError
+
+try:
+    async with Manager("192.168.1.1", version=3, user=user) as mgr:
+        pass
+except EngineDiscoveryError:
+    print("Could not discover remote engine")
+    # Check if device supports SNMPv3
+    # Try with explicit engine ID
+```
+
+### Time Window Errors
+
+SNMPv3 requires synchronized clocks (within 150 seconds):
+
+```python
+from snmpkit.manager.exceptions import TimeWindowError
+
+try:
+    await mgr.get("1.3.6.1.2.1.1.1.0")
+except TimeWindowError:
+    print("Clock out of sync with device")
+    # Force engine rediscovery
+    await mgr.discover_engine()
+```
+
+### Verify Device Configuration
+
+<Tabs items={['Net-SNMP', 'Cisco', 'Juniper']}>
+  <Tabs.Tab>
+```bash
+# Check snmpd.conf
+cat /etc/snmp/snmpd.conf
+
+# Verify user exists
+grep createUser /etc/snmp/snmpd.conf
+
+# Check access
+grep rouser /etc/snmp/snmpd.conf
+```
+  </Tabs.Tab>
+  <Tabs.Tab>
+```
+show snmp user
+show snmp group
+show snmp view
+show running-config | include snmp
+```
+  </Tabs.Tab>
+  <Tabs.Tab>
+```
+show snmp v3 users
+show configuration | display set | match snmp
+```
+  </Tabs.Tab>
+</Tabs>
+
+## Performance Issues
+
+### Slow Walks
+
+**Symptoms:** Walk takes too long.
+
+**Diagnosis:**
+
+```python
+import time
+
+start = time.time()
+count = 0
+async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.2.2"):
+    count += 1
+elapsed = time.time() - start
+
+print(f"{count} OIDs in {elapsed:.1f}s ({count/elapsed:.0f} OIDs/sec)")
+```
+
+**Solutions:**
+
+```python
+# Increase bulk size
+async for oid, value in mgr.bulk_walk("...", bulk_size=50):
+    pass
+
+# Use parallel column fetching for tables
+columns = ["1.2", "1.3", "1.8"]
+results = await asyncio.gather(*[
+    collect_column(mgr, col) for col in columns
+])
+```
+
+### High Latency
+
+**Symptoms:** Each request takes too long.
+
+**Diagnosis:**
+
+```python
+import time
+
+for _ in range(10):
+    start = time.time()
+    await mgr.get("1.3.6.1.2.1.1.1.0")
+    print(f"Request: {(time.time() - start)*1000:.1f}ms")
+```
+
+**Causes:**
+1. Network latency
+2. Device processing time
+3. DNS resolution
+
+**Solutions:**
+
+```python
+# Use IP instead of hostname
+async with Manager("192.168.1.1") as mgr:  # Not "router.example.com"
+    pass
+
+# Reduce timeout for fast failures
+async with Manager("192.168.1.1", timeout=1.0) as mgr:
+    pass
+```
+
+## Error Recovery Patterns
+
+### Retry with Backoff
+
+```python
+import asyncio
+from snmpkit.manager.exceptions import TimeoutError
+
+async def resilient_get(mgr, oid, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            return await mgr.get(oid)
+        except TimeoutError:
+            if attempt == max_retries - 1:
+                raise
+            await asyncio.sleep(2 ** attempt)
+```
+
+### Circuit Breaker
+
+```python
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+
+@dataclass
+class CircuitBreaker:
+    failures: int = 0
+    last_failure: datetime = None
+    threshold: int = 5
+    reset_timeout: timedelta = timedelta(minutes=5)
+
+    def record_failure(self):
+        self.failures += 1
+        self.last_failure = datetime.now()
+
+    def record_success(self):
+        self.failures = 0
+
+    def is_open(self) -> bool:
+        if self.failures >= self.threshold:
+            if datetime.now() - self.last_failure < self.reset_timeout:
+                return True
+            self.failures = 0
+        return False
+
+breakers = {}
+
+async def poll_with_breaker(host: str, oid: str):
+    breaker = breakers.setdefault(host, CircuitBreaker())
+
+    if breaker.is_open():
+        raise Exception(f"Circuit open for {host}")
+
+    try:
+        async with Manager(host, timeout=2.0) as mgr:
+            result = await mgr.get(oid)
+            breaker.record_success()
+            return result
+    except Exception:
+        breaker.record_failure()
+        raise
+```
+
+## Testing Connectivity
+
+### Basic Test Script
+
+```python
+import asyncio
+from snmpkit.manager import Manager
+from snmpkit.manager.exceptions import TimeoutError, NoSuchObjectError
+
+async def test_snmp(host: str, community: str = "public"):
+    print(f"Testing SNMP connectivity to {host}...")
+
+    try:
+        async with Manager(host, community=community, timeout=5.0) as mgr:
+            # Test basic connectivity
+            descr = await mgr.get("1.3.6.1.2.1.1.1.0")
+            print(f"  sysDescr: {descr}")
+
+            uptime = await mgr.get("1.3.6.1.2.1.1.3.0")
+            print(f"  sysUpTime: {uptime}")
+
+            # Test walk
+            count = 0
+            async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.2.2.1.2"):
+                count += 1
+            print(f"  Interfaces: {count}")
+
+            print("  Status: OK")
+            return True
+
+    except TimeoutError:
+        print("  Status: TIMEOUT - device not responding")
+    except NoSuchObjectError:
+        print("  Status: NO SUCH OBJECT - wrong community or limited access")
+    except Exception as e:
+        print(f"  Status: ERROR - {e}")
+
+    return False
+
+asyncio.run(test_snmp("192.168.1.1"))
+```
+
+## Getting Help
+
+### Collect Diagnostic Information
+
+```python
+import sys
+import snmpkit
+
+print(f"Python: {sys.version}")
+print(f"snmpkit: {snmpkit.__version__}")
+print(f"Platform: {sys.platform}")
+```
+
+### Report Issues
+
+When reporting issues, include:
+1. snmpkit version
+2. Python version
+3. Target device type
+4. SNMP version (v1/v2c/v3)
+5. Error message and traceback
+6. Minimal reproduction code
+
+## Next Steps
+
+- [Advanced](/docs/manager/advanced) — Performance tuning
+- [Examples](/docs/manager/examples) — Working code patterns

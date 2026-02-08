@@ -12,6 +12,27 @@ Requires Python 3.14+.
 
 ## Quick Start
 
+### SNMP Manager
+
+Query SNMP devices:
+
+```python
+import asyncio
+from snmpkit.manager import Manager
+
+async def main():
+    async with Manager("192.168.1.1", community="public") as mgr:
+        # Get system description
+        descr = await mgr.get("1.3.6.1.2.1.1.1.0")
+        print(f"Device: {descr}")
+
+        # Walk interface table
+        async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.2.2.1.2"):
+            print(f"{oid} = {value}")
+
+asyncio.run(main())
+```
+
 ### AgentX Subagent
 
 Extend an SNMP agent with custom data:
@@ -34,9 +55,93 @@ await agent.start()
 agent.start_sync()
 ```
 
-### Low-Level Rust Bindings
+## Manager API Reference
 
-For advanced use cases, access the Rust core directly:
+### Manager
+
+```python
+Manager(
+    host: str,
+    port: int = 161,
+    community: str = "public",
+    version: int = 2,              # 1, 2 (v2c), or 3
+    timeout: float = 5.0,
+    retries: int = 3,
+)
+```
+
+Methods:
+- `get(oid: str) -> Value` — Get single OID
+- `get_many(*oids: str) -> list[Value]` — Get multiple OIDs
+- `get_next(oid: str) -> tuple[str, Value]` — Get next OID
+- `get_bulk(*oids, non_repeaters=0, max_repetitions=10) -> list[tuple[str, Value]]` — Bulk get
+- `set(oid: str, value: Value) -> None` — Set OID value
+- `walk(oid: str) -> AsyncIterator[tuple[str, Value]]` — Walk using GetNext
+- `bulk_walk(oid: str, bulk_size=10) -> AsyncIterator[tuple[str, Value]]` — Walk using GetBulk
+
+### Exceptions
+
+```python
+from snmpkit.manager.exceptions import (
+    SnmpError,           # Base
+    TimeoutError,        # Request timed out
+    NoSuchObjectError,   # OID doesn't exist
+    NoSuchInstanceError, # Instance doesn't exist
+    EndOfMibViewError,   # End of MIB reached
+    GenericError,        # SNMP error with status code
+)
+```
+
+## Agent API Reference
+
+### Agent
+
+```python
+Agent(
+    agent_id: str = "snmpkit",
+    socket_path: str = "/var/agentx/master",
+    parallel_encoding: bool = False,  # Enable Rust parallel encoding
+    worker_threads: int = 0,          # Enable Python thread pool
+    queue_size: int = 0,              # 0 = unbounded
+)
+```
+
+Methods:
+- `register(oid, updater, freq=10, context=None, priority=127)` — Register OID subtree
+- `unregister(oid)` — Unregister OID subtree
+- `start()` — Async coroutine
+- `start_sync()` — Blocking
+- `stop()` — Stop agent
+
+### Updater
+
+```python
+class Updater:
+    async def update(self) -> None: ...
+
+    # Value setters
+    def set_INTEGER(self, oid: str, value: int) -> None
+    def set_OCTETSTRING(self, oid: str, value: str | bytes) -> None
+    def set_OBJECTIDENTIFIER(self, oid: str, value: str) -> None
+    def set_IPADDRESS(self, oid: str, value: str) -> None
+    def set_COUNTER32(self, oid: str, value: int) -> None
+    def set_GAUGE32(self, oid: str, value: int) -> None
+    def set_TIMETICKS(self, oid: str, value: int) -> None
+    def set_OPAQUE(self, oid: str, value: bytes) -> None
+    def set_COUNTER64(self, oid: str, value: int) -> None
+```
+
+### SetHandler
+
+```python
+class SetHandler:
+    async def test(self, oid: str, value) -> bool: ...
+    async def commit(self, oid: str, value) -> None: ...
+    async def undo(self, oid: str) -> None: ...
+    async def cleanup(self, oid: str) -> None: ...
+```
+
+## Low-Level Rust Bindings
 
 ```python
 from snmpkit.core import Oid, Value, VarBind
@@ -57,79 +162,14 @@ val = Value.IpAddress(192, 168, 1, 1)
 vb = VarBind(oid, val)
 ```
 
-## API Reference
+## Performance
 
-### Agent
-
-```python
-Agent(
-    agent_id: str = "snmpkit",
-    socket_path: str = "/var/agentx/master",
-    parallel_encoding: bool = False,  # Enable Rust parallel encoding
-    worker_threads: int = 0,          # Enable Python thread pool
-    queue_size: int = 0,              # 0 = unbounded (prevents queue full)
-)
-```
-
-Methods:
-- `register(oid, updater, freq=10, context=None, priority=127)` - Register an OID subtree
-- `unregister(oid)` - Unregister an OID subtree
-- `start()` - Async coroutine, use with `await`
-- `start_sync()` - Blocking, uses uvloop internally
-- `stop()` - Stop the agent
-
-### Updater
-
-Base class for OID handlers. Override `update()` to provide values.
-
-```python
-class Updater:
-    async def update(self) -> None: ...
-
-    # Value setters
-    def set_INTEGER(self, oid: str, value: int) -> None
-    def set_OCTETSTRING(self, oid: str, value: str | bytes) -> None
-    def set_OBJECTIDENTIFIER(self, oid: str, value: str) -> None
-    def set_IPADDRESS(self, oid: str, value: str) -> None
-    def set_COUNTER32(self, oid: str, value: int) -> None
-    def set_GAUGE32(self, oid: str, value: int) -> None
-    def set_TIMETICKS(self, oid: str, value: int) -> None
-    def set_OPAQUE(self, oid: str, value: bytes) -> None
-    def set_COUNTER64(self, oid: str, value: int) -> None
-```
-
-### SetHandler
-
-For writable OIDs (SNMP SET operations):
-
-```python
-class SetHandler:
-    async def test(self, oid: str, value) -> bool: ...
-    async def commit(self, oid: str, value) -> None: ...
-    async def undo(self, oid: str) -> None: ...
-    async def cleanup(self, oid: str) -> None: ...
-```
-
-### Decorator API
-
-For simple cases:
-
-```python
-@agent.updater("1.3.6.1.4.1.12345", freq=10)
-async def my_updater(ctx):
-    ctx.set_INTEGER("1.0", 42)
-```
-
-## Execution Modes
-
-Default is async without parallelism. Enable others as needed:
-
-| Mode | When to use | Enable with |
-|------|-------------|-------------|
-| Async (default) | Most cases | `snmpkit.run(main())` + `await agent.start()` |
-| Sync | Simple scripts | `agent.start_sync()` |
-| Parallel encoding | 1000+ OIDs | `Agent(parallel_encoding=True)` |
-| Worker threads | CPU-heavy callbacks | `Agent(worker_threads=4)` |
+| Component | Operation | vs Competition |
+|-----------|-----------|----------------|
+| Manager | BER Encode | 127x faster than pysnmp |
+| Manager | GET Request | 8.5x faster than pysnmp |
+| Manager | WALK | 14x faster than pysnmp |
+| Agent | PDU Encode | 11.5x faster than pyagentx3 |
 
 ## Entry Points
 

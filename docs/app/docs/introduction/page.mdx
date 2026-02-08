@@ -4,14 +4,40 @@
 
 ## Why snmpkit?
 
-- **Fast** — Rust-powered PDU encoding is 11x faster than pure Python
+- **Fast** — Rust-powered encoding is up to 127x faster than pure Python
 - **Async-first** — Built on Python's asyncio with uvloop
 - **Type-safe** — Full type hints throughout
 - **Simple API** — Clean, intuitive interface
+- **Complete** — Both Agent and Manager APIs
 
 ## What can you build?
 
-### SNMP Agents (Available Now)
+### SNMP Manager
+
+Query and monitor SNMP devices:
+
+```python
+import asyncio
+from snmpkit.manager import Manager
+
+async def main():
+    async with Manager("192.168.1.1", community="public") as mgr:
+        descr = await mgr.get("1.3.6.1.2.1.1.1.0")
+        print(f"Device: {descr}")
+
+        async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.2.2.1.2"):
+            print(f"{oid} = {value}")
+
+asyncio.run(main())
+```
+
+Use cases:
+- Network monitoring and polling
+- Device discovery and inventory
+- Configuration management
+- Trap receiving and alerting
+
+### SNMP Agent
 
 Build AgentX subagents that connect to Net-SNMP's snmpd:
 
@@ -38,32 +64,21 @@ Use cases:
 - Create device management interfaces
 - Implement enterprise MIBs
 
-### SNMP Manager (Coming Soon)
-
-Query SNMP devices as a manager:
-
-```python
-# Future API
-from snmpkit.manager import Manager
-
-async with Manager("192.168.1.1", community="public") as m:
-    result = await m.get("1.3.6.1.2.1.1.1.0")
-    print(result)  # sysDescr
-```
-
 ## Performance
 
 snmpkit's Rust core delivers significant performance improvements:
 
-| Operation | vs pyagentx3 |
-|-----------|--------------|
-| PDU Encode | 11.5x faster |
-| Value Create | 6.4x faster |
-| OID Parse | 1.5x faster |
+| Component | Operation | Speedup |
+|-----------|-----------|---------|
+| Manager | BER Encode | 127x faster than pysnmp |
+| Manager | GET Request | 8.5x faster than pysnmp |
+| Manager | WALK | 14x faster than pysnmp |
+| Agent | PDU Encode | 11.5x faster than pyagentx3 |
 
-See [Agent Performance](/docs/agent/performance) for detailed benchmarks.
+See [Manager Performance](/docs/manager/performance) and [Agent Performance](/docs/agent/performance) for detailed benchmarks.
 
 ## Next Steps
 
 - [Getting Started](/docs/getting-started) — Install snmpkit
+- [Manager Guide](/docs/manager) — Query SNMP devices
 - [Agent Guide](/docs/agent) — Build SNMP agents

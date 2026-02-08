@@ -1,0 +1,330 @@
+import { Tabs, Callout } from 'nextra/components'
+
+# Transports
+
+Configure network transport options.
+
+## Overview
+
+SNMP typically uses UDP, but other transports are supported:
+
+| Transport | Port | Use Case |
+|-----------|------|----------|
+| UDP/IPv4 | 161 | Default, most common |
+| UDP/IPv6 | 161 | IPv6 networks |
+| TCP/IPv4 | 161 | Large responses, reliable delivery |
+| TCP/IPv6 | 161 | IPv6 + TCP |
+
+## UDP Transport (Default)
+
+### Basic Usage
+
+```python
+from snmpkit.manager import Manager
+
+# UDP is the default
+async with Manager("192.168.1.1") as mgr:
+    value = await mgr.get("1.3.6.1.2.1.1.1.0")
+```
+
+### Explicit Configuration
+
+```python
+from snmpkit.manager import Manager, UdpTransport
+
+transport = UdpTransport(
+    host="192.168.1.1",
+    port=161,
+    timeout=5.0,
+    retries=3,
+)
+
+async with Manager(transport=transport) as mgr:
+    value = await mgr.get("1.3.6.1.2.1.1.1.0")
+```
+
+### Source Address Binding
+
+Bind to a specific local interface:
+
+```python
+transport = UdpTransport(
+    host="192.168.1.1",
+    port=161,
+    local_address="192.168.1.100",
+    local_port=0,  # Auto-assign
+)
+```
+
+## IPv6 Transport
+
+### Basic IPv6
+
+```python
+async with Manager("2001:db8::1") as mgr:
+    value = await mgr.get("1.3.6.1.2.1.1.1.0")
+```
+
+### Link-Local Addresses
+
+```python
+# Link-local requires scope ID (interface)
+async with Manager("fe80::1%eth0") as mgr:
+    value = await mgr.get("1.3.6.1.2.1.1.1.0")
+```
+
+### Dual-Stack
+
+```python
+from snmpkit.manager import UdpTransport
+
+# Prefer IPv6, fall back to IPv4
+transport = UdpTransport(
+    host="router.example.com",
+    prefer_ipv6=True,
+)
+```
+
+## TCP Transport
+
+TCP is useful when:
+- Responses exceed UDP MTU (~65KB)
+- Reliable delivery is required
+- Firewall rules block UDP
+
+```python
+from snmpkit.manager import Manager, TcpTransport
+
+transport = TcpTransport(
+    host="192.168.1.1",
+    port=161,
+    timeout=10.0,
+)
+
+async with Manager(transport=transport) as mgr:
+    value = await mgr.get("1.3.6.1.2.1.1.1.0")
+```
+
+<Callout type="warning">
+Not all devices support SNMP over TCP. Check device documentation first.
+</Callout>
+
+### Connection Pooling
+
+TCP connections are reused within a Manager session:
+
+```python
+async with Manager(transport=TcpTransport("192.168.1.1")) as mgr:
+    # All requests use the same TCP connection
+    for oid in oids:
+        await mgr.get(oid)
+```
+
+## Timeout and Retry Configuration
+
+### Per-Transport Settings
+
+```python
+transport = UdpTransport(
+    host="192.168.1.1",
+    timeout=2.0,        # Initial timeout
+    retries=5,          # Number of retries
+    timeout_backoff=1.5,  # Multiply timeout on each retry
+)
+
+# Timeouts: 2.0s, 3.0s, 4.5s, 6.75s, 10.125s
+```
+
+### Per-Request Timeout
+
+```python
+async with Manager("192.168.1.1", timeout=5.0) as mgr:
+    # Override timeout for slow operation
+    async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.2.2", timeout=30.0):
+        print(f"{oid} = {value}")
+```
+
+## Multiple Targets
+
+### Connection Reuse
+
+Create separate Manager instances for each target:
+
+```python
+async def poll_devices(hosts: list[str]):
+    async with asyncio.TaskGroup() as tg:
+        for host in hosts:
+            tg.create_task(poll_device(host))
+
+async def poll_device(host: str):
+    async with Manager(host) as mgr:
+        return await mgr.get("1.3.6.1.2.1.1.1.0")
+```
+
+### Shared Transport Pool
+
+For high-volume polling, share a socket pool:
+
+```python
+from snmpkit.manager import Manager, TransportPool
+
+pool = TransportPool(
+    max_sockets=100,
+    socket_timeout=60.0,
+)
+
+async def poll_device(host: str):
+    async with Manager(host, transport_pool=pool) as mgr:
+        return await mgr.get("1.3.6.1.2.1.1.1.0")
+```
+
+## DTLS Transport (SNMPv3)
+
+DTLS provides TLS-like security over UDP:
+
+```python
+from snmpkit.manager import DtlsTransport
+
+transport = DtlsTransport(
+    host="192.168.1.1",
+    port=10161,  # SNMP over DTLS port
+    cert_file="/path/to/client.crt",
+    key_file="/path/to/client.key",
+    ca_file="/path/to/ca.crt",
+)
+
+async with Manager(transport=transport, version=3) as mgr:
+    value = await mgr.get("1.3.6.1.2.1.1.1.0")
+```
+
+<Callout type="info">
+DTLS is defined in RFC 6353. Few devices support it currently.
+</Callout>
+
+## Proxy Support
+
+### SOCKS5 Proxy
+
+```python
+from snmpkit.manager import UdpTransport
+
+transport = UdpTransport(
+    host="192.168.1.1",
+    proxy="socks5://proxy.example.com:1080",
+)
+```
+
+### SSH Tunnel
+
+For SNMP over SSH tunnels:
+
+```python
+# First, create SSH tunnel:
+# ssh -L 10161:192.168.1.1:161 jumphost
+
+transport = UdpTransport(
+    host="127.0.0.1",
+    port=10161,
+)
+```
+
+## Custom Transport
+
+Implement custom transport for special requirements:
+
+```python
+from snmpkit.manager import Transport
+
+class MyTransport(Transport):
+    async def connect(self) -> None:
+        # Establish connection
+        pass
+
+    async def send(self, data: bytes) -> None:
+        # Send SNMP message
+        pass
+
+    async def receive(self, timeout: float) -> bytes:
+        # Receive SNMP response
+        pass
+
+    async def close(self) -> None:
+        # Clean up
+        pass
+
+transport = MyTransport()
+async with Manager(transport=transport) as mgr:
+    value = await mgr.get("1.3.6.1.2.1.1.1.0")
+```
+
+## Network Interface Selection
+
+### Bind to Specific Interface
+
+```python
+transport = UdpTransport(
+    host="192.168.1.1",
+    local_address="10.0.0.100",  # Use this interface
+)
+```
+
+### Multi-Homed Hosts
+
+For hosts with multiple network interfaces:
+
+```python
+# Management network
+mgmt_transport = UdpTransport(host="192.168.1.1", local_address="192.168.1.100")
+
+# Production network
+prod_transport = UdpTransport(host="10.0.0.1", local_address="10.0.0.100")
+```
+
+## Performance Tuning
+
+### Socket Options
+
+```python
+transport = UdpTransport(
+    host="192.168.1.1",
+    socket_options={
+        "SO_RCVBUF": 1024 * 1024,  # 1MB receive buffer
+        "SO_SNDBUF": 1024 * 1024,  # 1MB send buffer
+    },
+)
+```
+
+### Connection Timeout vs Request Timeout
+
+```python
+transport = UdpTransport(
+    host="192.168.1.1",
+    connect_timeout=2.0,   # Time to establish connection
+    request_timeout=10.0,  # Time for each request
+)
+```
+
+## Error Handling
+
+```python
+from snmpkit.manager.exceptions import (
+    TransportError,
+    ConnectionError,
+    TimeoutError,
+)
+
+try:
+    async with Manager("192.168.1.1") as mgr:
+        value = await mgr.get("1.3.6.1.2.1.1.1.0")
+except ConnectionError as e:
+    print(f"Could not connect: {e}")
+except TimeoutError:
+    print("Request timed out")
+except TransportError as e:
+    print(f"Transport error: {e}")
+```
+
+## Next Steps
+
+- [Advanced](/docs/manager/advanced) — Performance tuning
+- [Troubleshooting](/docs/manager/troubleshooting) — Debug transport issues

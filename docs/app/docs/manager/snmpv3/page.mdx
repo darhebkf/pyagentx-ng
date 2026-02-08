@@ -1,0 +1,302 @@
+import { Tabs, Callout } from 'nextra/components'
+
+# SNMPv3
+
+Secure SNMP with authentication and encryption.
+
+## Overview
+
+SNMPv3 adds security features missing from v1/v2c:
+
+| Feature | v1/v2c | v3 |
+|---------|--------|-----|
+| Authentication | Community string (plaintext) | HMAC (MD5, SHA, SHA-256, SHA-384, SHA-512) |
+| Encryption | None | DES, 3DES, AES-128, AES-192, AES-256 |
+| Access Control | Community-based | User-based (USM) |
+| Engine Discovery | N/A | Automatic |
+
+## Security Levels
+
+```python
+from snmpkit.manager import Manager, SecurityLevel
+
+# noAuthNoPriv - username only, no security
+mgr = Manager("192.168.1.1", version=3, security_level=SecurityLevel.noAuthNoPriv)
+
+# authNoPriv - authentication, no encryption
+mgr = Manager("192.168.1.1", version=3, security_level=SecurityLevel.authNoPriv)
+
+# authPriv - authentication + encryption (recommended)
+mgr = Manager("192.168.1.1", version=3, security_level=SecurityLevel.authPriv)
+```
+
+<Callout type="warning">
+Always use `authPriv` in production. `noAuthNoPriv` provides no more security than v2c.
+</Callout>
+
+## User Configuration
+
+### Basic Setup
+
+```python
+from snmpkit.manager import Manager, USMUser, AuthProtocol, PrivProtocol
+
+user = USMUser(
+    username="admin",
+    auth_protocol=AuthProtocol.SHA256,
+    auth_key="my_auth_password",
+    priv_protocol=PrivProtocol.AES128,
+    priv_key="my_priv_password",
+)
+
+async with Manager("192.168.1.1", version=3, user=user) as mgr:
+    value = await mgr.get("1.3.6.1.2.1.1.1.0")
+```
+
+### Authentication Protocols
+
+| Protocol | Security | Performance | Notes |
+|----------|----------|-------------|-------|
+| `MD5` | Weak | Fast | Legacy only, not recommended |
+| `SHA` | Moderate | Fast | SHA-1, being phased out |
+| `SHA224` | Good | Moderate | Truncated SHA-256 |
+| `SHA256` | Strong | Moderate | Recommended default |
+| `SHA384` | Strong | Slower | High security |
+| `SHA512` | Strong | Slower | Maximum security |
+
+```python
+from snmpkit.manager import AuthProtocol
+
+# SHA-256 (recommended)
+user = USMUser(
+    username="admin",
+    auth_protocol=AuthProtocol.SHA256,
+    auth_key="my_secure_password_32_chars_min!",
+)
+```
+
+### Privacy Protocols
+
+| Protocol | Key Size | Security | Notes |
+|----------|----------|----------|-------|
+| `DES` | 56-bit | Weak | Legacy only |
+| `3DES` | 168-bit | Moderate | Slow, being phased out |
+| `AES128` | 128-bit | Strong | Recommended default |
+| `AES192` | 192-bit | Strong | Higher security |
+| `AES256` | 256-bit | Strong | Maximum security |
+
+```python
+from snmpkit.manager import PrivProtocol
+
+# AES-256 for maximum security
+user = USMUser(
+    username="admin",
+    auth_protocol=AuthProtocol.SHA512,
+    auth_key="authentication_password",
+    priv_protocol=PrivProtocol.AES256,
+    priv_key="privacy_password",
+)
+```
+
+<Callout type="info">
+Privacy requires authentication. You cannot use `PrivProtocol` without `AuthProtocol`.
+</Callout>
+
+## Engine Discovery
+
+SNMPv3 requires knowing the remote engine's ID, boots counter, and time. snmpkit handles this automatically:
+
+```python
+async with Manager("192.168.1.1", version=3, user=user) as mgr:
+    # Engine discovery happens automatically on connect()
+    print(f"Engine ID: {mgr.engine_id.hex()}")
+    print(f"Engine Boots: {mgr.engine_boots}")
+    print(f"Engine Time: {mgr.engine_time}")
+```
+
+### Manual Engine Configuration
+
+For devices that don't support discovery:
+
+```python
+mgr = Manager(
+    "192.168.1.1",
+    version=3,
+    user=user,
+    engine_id=bytes.fromhex("80001234..."),
+    engine_boots=15,
+    engine_time=12345,
+)
+```
+
+## Key Localization
+
+SNMPv3 uses localized keys derived from passwords and the engine ID. snmpkit handles this automatically, but you can also provide pre-localized keys:
+
+```python
+# Using password (localized automatically)
+user = USMUser(
+    username="admin",
+    auth_protocol=AuthProtocol.SHA256,
+    auth_key="my_password",
+)
+
+# Using pre-localized key (32 bytes for SHA-256)
+user = USMUser(
+    username="admin",
+    auth_protocol=AuthProtocol.SHA256,
+    auth_key_localized=bytes.fromhex("abcd1234..."),
+)
+```
+
+## Context
+
+SNMPv3 supports contexts for accessing different MIB views:
+
+```python
+async with Manager("192.168.1.1", version=3, user=user) as mgr:
+    # Default context
+    value = await mgr.get("1.3.6.1.2.1.1.1.0")
+
+    # Specific context
+    value = await mgr.get("1.3.6.1.2.1.1.1.0", context="vlan100")
+```
+
+## Complete Example
+
+<Tabs items={['authPriv', 'authNoPriv', 'noAuthNoPriv']}>
+  <Tabs.Tab>
+```python
+import asyncio
+from snmpkit.manager import (
+    Manager, USMUser, AuthProtocol, PrivProtocol, SecurityLevel
+)
+
+async def main():
+    user = USMUser(
+        username="snmpv3user",
+        auth_protocol=AuthProtocol.SHA256,
+        auth_key="auth_password_here",
+        priv_protocol=PrivProtocol.AES128,
+        priv_key="priv_password_here",
+    )
+
+    async with Manager(
+        "192.168.1.1",
+        version=3,
+        user=user,
+        security_level=SecurityLevel.authPriv,
+    ) as mgr:
+        descr = await mgr.get("1.3.6.1.2.1.1.1.0")
+        print(f"Device: {descr}")
+
+asyncio.run(main())
+```
+  </Tabs.Tab>
+  <Tabs.Tab>
+```python
+import asyncio
+from snmpkit.manager import (
+    Manager, USMUser, AuthProtocol, SecurityLevel
+)
+
+async def main():
+    user = USMUser(
+        username="snmpv3user",
+        auth_protocol=AuthProtocol.SHA256,
+        auth_key="auth_password_here",
+    )
+
+    async with Manager(
+        "192.168.1.1",
+        version=3,
+        user=user,
+        security_level=SecurityLevel.authNoPriv,
+    ) as mgr:
+        descr = await mgr.get("1.3.6.1.2.1.1.1.0")
+        print(f"Device: {descr}")
+
+asyncio.run(main())
+```
+  </Tabs.Tab>
+  <Tabs.Tab>
+```python
+import asyncio
+from snmpkit.manager import Manager, USMUser, SecurityLevel
+
+async def main():
+    user = USMUser(username="snmpv3user")
+
+    async with Manager(
+        "192.168.1.1",
+        version=3,
+        user=user,
+        security_level=SecurityLevel.noAuthNoPriv,
+    ) as mgr:
+        descr = await mgr.get("1.3.6.1.2.1.1.1.0")
+        print(f"Device: {descr}")
+
+asyncio.run(main())
+```
+  </Tabs.Tab>
+</Tabs>
+
+## Error Handling
+
+```python
+from snmpkit.manager.exceptions import (
+    AuthenticationError,
+    PrivacyError,
+    EngineDiscoveryError,
+    TimeWindowError,
+)
+
+try:
+    async with Manager("192.168.1.1", version=3, user=user) as mgr:
+        value = await mgr.get("1.3.6.1.2.1.1.1.0")
+except AuthenticationError:
+    print("Authentication failed - check username/password")
+except PrivacyError:
+    print("Decryption failed - check privacy password")
+except EngineDiscoveryError:
+    print("Could not discover remote engine")
+except TimeWindowError:
+    print("Time window exceeded - clocks out of sync")
+```
+
+## Security Best Practices
+
+1. **Always use authPriv** - Authentication without encryption exposes data
+2. **Use SHA-256 or higher** - MD5 and SHA-1 are considered weak
+3. **Use AES-128 or higher** - DES is easily broken
+4. **Use strong passwords** - Minimum 16 characters, mixed case, numbers, symbols
+5. **Rotate credentials** - Change passwords periodically
+6. **Use unique users** - Don't share credentials across devices
+
+## Device Configuration
+
+### Net-SNMP (snmpd.conf)
+
+```
+createUser snmpv3user SHA-256 "auth_password" AES "priv_password"
+rouser snmpv3user priv
+```
+
+### Cisco IOS
+
+```
+snmp-server group v3group v3 priv
+snmp-server user snmpv3user v3group v3 auth sha256 auth_password priv aes 128 priv_password
+```
+
+### Juniper Junos
+
+```
+set snmp v3 usm local-engine user snmpv3user authentication-sha256 authentication-password auth_password
+set snmp v3 usm local-engine user snmpv3user privacy-aes128 privacy-password priv_password
+```
+
+## Next Steps
+
+- [Contexts](/docs/manager/contexts) — Multi-tenant queries
+- [Troubleshooting](/docs/manager/troubleshooting) — Debug SNMPv3 issues

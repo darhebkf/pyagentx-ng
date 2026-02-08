@@ -1,0 +1,238 @@
+import { Callout } from 'nextra/components'
+
+# Operations
+
+Complete API reference for Manager operations.
+
+## Manager
+
+### Constructor
+
+```python
+from snmpkit.manager import Manager
+
+mgr = Manager(
+    host: str,
+    port: int = 161,
+    community: str = "public",
+    version: int = 2,
+    timeout: float = 5.0,
+    retries: int = 3,
+)
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `host` | str | required | Target device hostname or IP |
+| `port` | int | 161 | SNMP UDP port |
+| `community` | str | "public" | Community string (v1/v2c) |
+| `version` | int | 2 | SNMP version: 1, 2 (v2c), or 3 |
+| `timeout` | float | 5.0 | Request timeout in seconds |
+| `retries` | int | 3 | Number of retries on timeout |
+
+### Context Manager
+
+```python
+async with Manager("192.168.1.1") as mgr:
+    # mgr.connect() called automatically
+    value = await mgr.get("1.3.6.1.2.1.1.1.0")
+# mgr.close() called automatically
+```
+
+### Manual Connection
+
+```python
+mgr = Manager("192.168.1.1")
+await mgr.connect()
+try:
+    value = await mgr.get("1.3.6.1.2.1.1.1.0")
+finally:
+    await mgr.close()
+```
+
+## GET Operations
+
+### get
+
+Retrieve a single OID value.
+
+```python
+async def get(self, oid: str) -> Value
+```
+
+```python
+value = await mgr.get("1.3.6.1.2.1.1.1.0")
+```
+
+**Raises:**
+- `NoSuchObjectError` — OID does not exist
+- `NoSuchInstanceError` — Instance does not exist
+- `TimeoutError` — Request timed out after all retries
+- `GenericError` — SNMP error response
+
+### get_many
+
+Retrieve multiple OIDs in a single request.
+
+```python
+async def get_many(self, *oids: str) -> list[Value]
+```
+
+```python
+values = await mgr.get_many(
+    "1.3.6.1.2.1.1.1.0",
+    "1.3.6.1.2.1.1.3.0",
+)
+# values[0] = sysDescr
+# values[1] = sysUpTime
+```
+
+### get_next
+
+Get the next OID in lexicographic order.
+
+```python
+async def get_next(self, oid: str) -> tuple[str, Value]
+```
+
+```python
+next_oid, value = await mgr.get_next("1.3.6.1.2.1.1.1")
+# Returns ("1.3.6.1.2.1.1.1.0", <value>)
+```
+
+**Raises:**
+- `EndOfMibViewError` — No more OIDs available
+
+### get_bulk
+
+Get multiple OIDs using GETBULK (v2c/v3 only).
+
+```python
+async def get_bulk(
+    self,
+    *oids: str,
+    non_repeaters: int = 0,
+    max_repetitions: int = 10,
+) -> list[tuple[str, Value]]
+```
+
+```python
+results = await mgr.get_bulk(
+    "1.3.6.1.2.1.2.2.1.1",
+    max_repetitions=25,
+)
+for oid, value in results:
+    print(f"{oid} = {value}")
+```
+
+<Callout type="warning">
+`get_bulk` is not available in SNMPv1. Use `version=2` or higher.
+</Callout>
+
+## WALK Operations
+
+### walk
+
+Iterate through an OID subtree using GETNEXT.
+
+```python
+async def walk(self, oid: str) -> AsyncIterator[tuple[str, Value]]
+```
+
+```python
+async for oid, value in mgr.walk("1.3.6.1.2.1.1"):
+    print(f"{oid} = {value}")
+```
+
+The iterator stops when:
+- An OID outside the subtree is returned
+- `EndOfMibView` is returned
+
+### bulk_walk
+
+Efficient walk using GETBULK (v2c/v3 only).
+
+```python
+async def bulk_walk(
+    self,
+    oid: str,
+    bulk_size: int = 10,
+) -> AsyncIterator[tuple[str, Value]]
+```
+
+```python
+async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.2.2", bulk_size=25):
+    print(f"{oid} = {value}")
+```
+
+<Callout type="info">
+`bulk_walk` is faster than `walk` because it retrieves multiple OIDs per request. Use `bulk_size=25` for most cases.
+</Callout>
+
+## SET Operations
+
+### set
+
+Set an OID value (v2c/v3 only).
+
+```python
+async def set(self, oid: str, value: Value) -> None
+```
+
+```python
+from snmpkit.core import Value
+
+await mgr.set("1.3.6.1.2.1.1.5.0", Value.OctetString(b"new-hostname"))
+await mgr.set("1.3.6.1.2.1.1.6.0", Value.OctetString(b"Server Room"))
+```
+
+### Value Types
+
+| Type | Example |
+|------|---------|
+| `Value.Integer(n)` | `Value.Integer(42)` |
+| `Value.OctetString(b)` | `Value.OctetString(b"hello")` |
+| `Value.ObjectIdentifier(oid)` | `Value.ObjectIdentifier(Oid("1.3.6.1"))` |
+| `Value.IpAddress(s)` | `Value.IpAddress("192.168.1.1")` |
+| `Value.Counter32(n)` | `Value.Counter32(1000)` |
+| `Value.Gauge32(n)` | `Value.Gauge32(50)` |
+| `Value.TimeTicks(n)` | `Value.TimeTicks(12345)` |
+| `Value.Counter64(n)` | `Value.Counter64(1000000)` |
+
+## Exceptions
+
+```python
+from snmpkit.manager.exceptions import (
+    SnmpError,           # Base exception
+    TimeoutError,        # Request timed out
+    NoSuchObjectError,   # OID does not exist
+    NoSuchInstanceError, # Instance does not exist
+    EndOfMibViewError,   # End of MIB reached
+    GenericError,        # SNMP error status
+)
+```
+
+### GenericError
+
+Contains the SNMP error status and index:
+
+```python
+try:
+    await mgr.set("1.3.6.1.2.1.1.1.0", Value.Integer(1))
+except GenericError as e:
+    print(f"Error status: {e.status}")
+    print(f"Error index: {e.index}")
+```
+
+Error status codes:
+
+| Code | Name | Description |
+|------|------|-------------|
+| 1 | tooBig | Response too large |
+| 2 | noSuchName | OID not found (v1) |
+| 3 | badValue | Invalid value |
+| 4 | readOnly | Cannot modify |
+| 5 | genErr | General error |
+| 6 | noAccess | Access denied |
+| 7 | wrongType | Wrong value type |
+| ... | ... | ... |

@@ -1,0 +1,369 @@
+import { Tabs, Callout } from 'nextra/components'
+
+# Advanced
+
+Performance tuning and advanced configuration.
+
+## Manager Configuration
+
+### Full Constructor
+
+```python
+from snmpkit.manager import Manager
+
+mgr = Manager(
+    host="192.168.1.1",
+    port=161,
+    community="public",
+    version=2,
+    timeout=5.0,
+    retries=3,
+    max_message_size=65535,
+    engine_id=None,
+    context_name="",
+)
+```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `host` | required | Target hostname or IP |
+| `port` | 161 | SNMP port |
+| `community` | "public" | Community string (v1/v2c) |
+| `version` | 2 | SNMP version (1, 2, 3) |
+| `timeout` | 5.0 | Request timeout seconds |
+| `retries` | 3 | Retry count on timeout |
+| `max_message_size` | 65535 | Maximum PDU size |
+| `context_name` | "" | Default SNMP context |
+
+## Timeout Strategies
+
+### Exponential Backoff
+
+```python
+from snmpkit.manager import Manager, TimeoutStrategy
+
+mgr = Manager(
+    "192.168.1.1",
+    timeout=1.0,
+    retries=5,
+    timeout_strategy=TimeoutStrategy.EXPONENTIAL,
+    backoff_factor=2.0,
+)
+# Timeouts: 1s, 2s, 4s, 8s, 16s
+```
+
+### Linear Backoff
+
+```python
+mgr = Manager(
+    "192.168.1.1",
+    timeout=2.0,
+    retries=5,
+    timeout_strategy=TimeoutStrategy.LINEAR,
+    backoff_increment=1.0,
+)
+# Timeouts: 2s, 3s, 4s, 5s, 6s
+```
+
+### Fixed Timeout
+
+```python
+mgr = Manager(
+    "192.168.1.1",
+    timeout=5.0,
+    retries=3,
+    timeout_strategy=TimeoutStrategy.FIXED,
+)
+# Timeouts: 5s, 5s, 5s
+```
+
+## Connection Pooling
+
+### Shared Manager Pool
+
+```python
+from snmpkit.manager import ManagerPool
+
+pool = ManagerPool(
+    max_connections=100,
+    connection_timeout=30.0,
+    idle_timeout=300.0,
+)
+
+async def poll_device(host: str):
+    async with pool.get(host, community="public") as mgr:
+        return await mgr.get("1.3.6.1.2.1.1.1.0")
+
+# Poll many devices efficiently
+results = await asyncio.gather(*[poll_device(h) for h in hosts])
+
+# Clean up
+await pool.close()
+```
+
+### Per-Host Connection Reuse
+
+```python
+from snmpkit.manager import Manager
+
+# Single manager, multiple requests
+async with Manager("192.168.1.1") as mgr:
+    # Connection is reused
+    for oid in oids:
+        value = await mgr.get(oid)
+```
+
+## Bulk Operation Tuning
+
+### GETBULK Parameters
+
+```python
+async with Manager("192.168.1.1") as mgr:
+    # max_repetitions: how many rows per request
+    results = await mgr.get_bulk(
+        "1.3.6.1.2.1.2.2.1.1",
+        max_repetitions=50,  # Default: 10
+        non_repeaters=0,
+    )
+```
+
+### Bulk Walk Tuning
+
+```python
+# Large tables: bigger batches, fewer round-trips
+async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.2.2", bulk_size=50):
+    pass
+
+# Small tables or slow devices: smaller batches
+async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.2.2", bulk_size=10):
+    pass
+
+# Very large tables: use iterator with progress
+count = 0
+async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.4.22", bulk_size=100):
+    count += 1
+    if count % 1000 == 0:
+        print(f"Processed {count} entries...")
+```
+
+<Callout type="info">
+Optimal `bulk_size` depends on the device. Most support 25-50. Some older devices may only support 10. MTU limits apply (~1400 bytes of OID data per packet).
+</Callout>
+
+## Request Pipelining
+
+Send multiple requests without waiting for responses:
+
+```python
+from snmpkit.manager import Manager
+
+async with Manager("192.168.1.1") as mgr:
+    # Create pending requests
+    pending = []
+    for oid in oids:
+        pending.append(mgr.get_async(oid))
+
+    # Wait for all responses
+    results = await asyncio.gather(*pending)
+```
+
+## Message Size Limits
+
+### Large Response Handling
+
+```python
+mgr = Manager(
+    "192.168.1.1",
+    max_message_size=65535,  # Maximum UDP size
+)
+
+# For very large responses, use smaller bulk_size
+async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.2.2", bulk_size=10):
+    pass
+```
+
+### TooBig Error Recovery
+
+```python
+from snmpkit.manager.exceptions import TooBigError
+
+try:
+    results = await mgr.get_bulk("1.3.6.1.2.1.2.2.1.1", max_repetitions=100)
+except TooBigError:
+    # Retry with smaller batch
+    results = await mgr.get_bulk("1.3.6.1.2.1.2.2.1.1", max_repetitions=25)
+```
+
+## Engine Configuration
+
+### SNMPv3 Engine Settings
+
+```python
+from snmpkit.manager import Manager, EngineConfig
+
+engine = EngineConfig(
+    engine_id=bytes.fromhex("80001234..."),
+    engine_boots=0,
+    engine_time=0,
+    max_message_size=65535,
+)
+
+mgr = Manager("192.168.1.1", version=3, engine=engine)
+```
+
+### Engine Discovery
+
+```python
+async with Manager("192.168.1.1", version=3, user=user) as mgr:
+    # Discovery happens automatically on connect
+    await mgr.connect()
+
+    print(f"Remote Engine ID: {mgr.remote_engine_id.hex()}")
+    print(f"Remote Engine Boots: {mgr.remote_engine_boots}")
+    print(f"Remote Engine Time: {mgr.remote_engine_time}")
+```
+
+## Logging
+
+### Enable Debug Logging
+
+```python
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+logging.getLogger("snmpkit").setLevel(logging.DEBUG)
+```
+
+### Log Levels
+
+| Level | Information |
+|-------|-------------|
+| DEBUG | PDU encode/decode, timing |
+| INFO | Connection events |
+| WARNING | Retries, recoverable errors |
+| ERROR | Failed requests |
+
+### Custom Logger
+
+```python
+import logging
+
+logger = logging.getLogger("myapp.snmp")
+
+mgr = Manager("192.168.1.1", logger=logger)
+```
+
+## Async Patterns
+
+### Graceful Shutdown
+
+```python
+import asyncio
+import signal
+
+async def main():
+    mgr = Manager("192.168.1.1")
+    await mgr.connect()
+
+    shutdown_event = asyncio.Event()
+
+    def signal_handler():
+        shutdown_event.set()
+
+    loop = asyncio.get_event_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, signal_handler)
+
+    try:
+        while not shutdown_event.is_set():
+            value = await mgr.get("1.3.6.1.2.1.1.3.0")
+            print(f"Uptime: {value}")
+            await asyncio.sleep(60)
+    finally:
+        await mgr.close()
+```
+
+### Concurrent Device Polling
+
+```python
+async def poll_devices(hosts: list[str], max_concurrent: int = 50):
+    semaphore = asyncio.Semaphore(max_concurrent)
+
+    async def poll_one(host: str):
+        async with semaphore:
+            async with Manager(host, timeout=2.0) as mgr:
+                return await mgr.get("1.3.6.1.2.1.1.1.0")
+
+    return await asyncio.gather(*[poll_one(h) for h in hosts], return_exceptions=True)
+```
+
+### Streaming Results
+
+```python
+async def stream_walk(host: str, oid: str):
+    async with Manager(host) as mgr:
+        async for oid, value in mgr.bulk_walk(oid):
+            yield (oid, value)
+
+# Use as async generator
+async for oid, value in stream_walk("192.168.1.1", "1.3.6.1.2.1.2.2"):
+    process(oid, value)
+```
+
+## Memory Optimization
+
+### Streaming Large Walks
+
+```python
+# Bad: loads entire table into memory
+results = []
+async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.4.22"):
+    results.append((oid, value))
+
+# Good: process as you go
+async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.4.22"):
+    await write_to_database(oid, value)
+```
+
+### Lazy Value Decoding
+
+```python
+# Values are decoded on access, not on receive
+async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.2.2"):
+    if should_process(oid):
+        # Decode only when needed
+        decoded = str(value)
+```
+
+## Thread Safety
+
+Manager instances are not thread-safe. Use one per task:
+
+```python
+# Bad: shared manager across threads
+mgr = Manager("192.168.1.1")
+
+def worker():
+    asyncio.run(mgr.get(...))  # Not safe!
+
+# Good: create manager in each task
+async def worker(host: str):
+    async with Manager(host) as mgr:
+        return await mgr.get(...)
+```
+
+## Performance Recommendations
+
+| Scenario | Configuration |
+|----------|---------------|
+| Single device, few OIDs | Default settings |
+| Single device, large table | `bulk_size=50` |
+| Many devices (100-1000) | Connection pool, `max_concurrent=50` |
+| Many devices (1000+) | Connection pool, rate limiting |
+| Slow network | Increase timeout, reduce bulk_size |
+| Unreliable network | Increase retries, exponential backoff |
+
+## Next Steps
+
+- [Performance](/docs/manager/performance) — Benchmark results
+- [Troubleshooting](/docs/manager/troubleshooting) — Debug issues

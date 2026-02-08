@@ -83,3 +83,79 @@ export function AgentBenchmarks() {
     </div>
   );
 }
+
+interface ManagerBenchmarkData {
+  label: string;
+  snmpkit: number;
+  pysnmp: number;
+  unit: string;
+}
+
+function ManagerBenchmarkBar({ data }: { data: ManagerBenchmarkData }) {
+  const max = Math.max(data.pysnmp, data.snmpkit);
+  const snmpkitWidth = (data.snmpkit / max) * 100;
+  const pysnmpWidth = (data.pysnmp / max) * 100;
+  const speedup = (data.pysnmp / data.snmpkit).toFixed(1);
+
+  return (
+    <div className="mb-6">
+      <h4 className="text-sm font-medium mb-2">{data.label}</h4>
+      <div className="space-y-2">
+        <div className="flex items-center gap-3">
+          <span className="text-xs w-16 text-right text-neutral-500">snmpkit</span>
+          <div className="flex-1 h-6 bg-neutral-100 dark:bg-neutral-800 rounded overflow-hidden">
+            <div
+              className="h-full bg-green-600 rounded"
+              style={{ width: `${snmpkitWidth}%` }}
+            />
+          </div>
+          <span className="text-xs w-20 text-neutral-600 dark:text-neutral-400">
+            {data.snmpkit} {data.unit}
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs w-16 text-right text-neutral-400">pysnmp</span>
+          <div className="flex-1 h-6 bg-neutral-100 dark:bg-neutral-800 rounded overflow-hidden">
+            <div
+              className="h-full bg-neutral-300 dark:bg-neutral-600 rounded"
+              style={{ width: `${pysnmpWidth}%` }}
+            />
+          </div>
+          <span className="text-xs w-20 text-neutral-400">
+            {data.pysnmp} {data.unit}
+          </span>
+        </div>
+      </div>
+      <p className="text-xs text-neutral-500 mt-1">{speedup}x faster</p>
+    </div>
+  );
+}
+
+export function ManagerBenchmarks() {
+  const benchmarks: ManagerBenchmarkData[] = [
+    { label: "BER Encode", snmpkit: 0.58, pysnmp: 73.4, unit: "μs" },
+    { label: "GET Request", snmpkit: 0.12, pysnmp: 1.02, unit: "ms" },
+    { label: "WALK (38 OIDs)", snmpkit: 0.78, pysnmp: 10.9, unit: "ms" },
+  ];
+
+  return (
+    <div className="my-6">
+      <div className="flex items-center gap-4 mb-4 text-xs">
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 bg-green-600 rounded" />
+          <span>snmpkit (Rust)</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 bg-neutral-300 dark:bg-neutral-600 rounded" />
+          <span>pysnmp (Python)</span>
+        </div>
+      </div>
+      {benchmarks.map((b) => (
+        <ManagerBenchmarkBar key={b.label} data={b} />
+      ))}
+      <p className="text-xs text-neutral-500 mt-4">
+        Lower is better. BER: 10,000 iterations. GET/WALK: 100 iterations against localhost snmpd.
+      </p>
+    </div>
+  );
+}

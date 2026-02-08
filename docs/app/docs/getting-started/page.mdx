@@ -27,9 +27,11 @@ pdm add snmpkit
 ## Requirements
 
 - **Python 3.14+**
-- **Net-SNMP** (for AgentX support)
 
-### Installing Net-SNMP
+For Agent (AgentX) support, you also need:
+- **Net-SNMP** (snmpd with AgentX enabled)
+
+### Installing Net-SNMP (Agent only)
 
 <Tabs items={['Ubuntu/Debian', 'RHEL/CentOS', 'macOS']}>
   <Tabs.Tab>
@@ -56,7 +58,7 @@ import snmpkit
 print(snmpkit.__version__)
 ```
 
-## Configure snmpd for AgentX
+## Configure snmpd for AgentX (Agent only)
 
 To use snmpkit agents, enable AgentX in snmpd:
 
@@ -86,5 +88,7 @@ The default AgentX socket is `/var/agentx/master`. Make sure your user has permi
 
 Choose your path:
 
+- **[Manager Guide](/docs/manager)** — Query and monitor SNMP devices
+- **[Manager Quickstart](/docs/manager/quickstart)** — Start polling devices
 - **[Agent Guide](/docs/agent)** — Build SNMP agents that expose data
-- **[Agent Quickstart](/docs/agent/quickstart)** — Jump straight to code
+- **[Agent Quickstart](/docs/agent/quickstart)** — Jump straight to agent code

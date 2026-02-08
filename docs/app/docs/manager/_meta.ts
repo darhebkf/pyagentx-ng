@@ -1,0 +1,15 @@
+export default {
+  index: "Overview",
+  quickstart: "Quickstart",
+  operations: "Operations",
+  snmpv3: "SNMPv3",
+  mibs: "MIB Support",
+  traps: "Traps & Notifications",
+  tables: "Tables",
+  transports: "Transports",
+  contexts: "Contexts",
+  examples: "Examples",
+  advanced: "Advanced",
+  troubleshooting: "Troubleshooting",
+  performance: "Performance",
+};

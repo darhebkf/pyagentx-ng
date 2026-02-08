@@ -1,0 +1,108 @@
+import { Callout } from 'nextra/components'
+
+# Performance
+
+Performance comparison between snmpkit (Rust core) and pysnmp (pure Python).
+
+## Benchmarks
+
+import { ManagerBenchmarks } from "@/components/BenchmarkChart"
+
+<ManagerBenchmarks />
+
+## Analysis
+
+### BER Encode: 127x faster
+
+The most critical operation for request/response performance. snmpkit encodes SNMP messages in Rust with zero-copy byte handling, while pysnmp uses Python's pyasn1 library with multiple object allocations.
+
+### GET Request: 8.5x faster
+
+End-to-end GET request latency including:
+- Message encoding
+- UDP send/receive
+- Response decoding
+
+The speedup is lower than BER encoding alone because network I/O dominates. The 8.5x improvement comes from faster encoding/decoding on both ends.
+
+### WALK: 14x faster
+
+Walking an OID subtree shows the cumulative benefit:
+- Multiple GETBULK requests
+- Response decoding for each batch
+- Iterator overhead
+
+snmpkit's bulk_walk is particularly efficient because the Rust decoder processes batches without Python object creation until values are accessed.
+
+## Test Environment
+
+| Component | Specification |
+|-----------|---------------|
+| CPU | AMD Ryzen 7 5800X (8C/16T, 3.8GHz base) |
+| Memory | 64GB DDR4 3600MHz |
+| OS | Ubuntu 22.04 LTS (WSL2) |
+| Python | 3.14 |
+| Rust | 1.83.0 |
+| Target | localhost snmpd |
+
+## Real-World Impact
+
+### Polling Throughput
+
+For network monitoring polling 1000 devices:
+
+| Operation | pysnmp | snmpkit |
+|-----------|--------|---------|
+| Poll rate (devices/sec) | ~50 | ~400 |
+| 1000 devices | 20 sec | 2.5 sec |
+
+### Concurrent Requests
+
+With asyncio, snmpkit can handle more concurrent requests before CPU becomes the bottleneck:
+
+```python
+async def poll_many(hosts: list[str]):
+    async with asyncio.TaskGroup() as tg:
+        for host in hosts:
+            tg.create_task(poll_device(host))
+```
+
+### Memory Usage
+
+snmpkit uses less memory per OID:
+- pysnmp: Full Python objects for each OID component and value
+- snmpkit: Compact Rust types, Python wrappers created on-demand
+
+## Reproducing Benchmarks
+
+Run the benchmarks yourself:
+
+```bash
+# Install snmpd for local testing
+sudo apt install snmpd
+sudo systemctl start snmpd
+
+# Run benchmarks
+uv run python -m benchmarks.run_all
+```
+
+Results are saved to `benchmarks/results.json`.
+
+### Individual Benchmarks
+
+```bash
+# BER encoding only (no network)
+uv run python benchmarks/bench_ber.py
+
+# GET requests
+uv run python benchmarks/bench_get.py
+
+# WALK operations
+uv run python benchmarks/bench_walk.py
+```
+
+### Custom Target
+
+```bash
+SNMP_HOST=192.168.1.1 SNMP_COMMUNITY=private uv run python benchmarks/bench_get.py
+```

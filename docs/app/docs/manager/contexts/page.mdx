@@ -1,0 +1,276 @@
+import { Tabs, Callout } from 'nextra/components'
+
+# Contexts
+
+Query different MIB views with SNMP contexts.
+
+## Overview
+
+SNMP contexts allow a single agent to serve different MIB views. Common use cases:
+
+| Use Case | Context Example |
+|----------|-----------------|
+| VLANs | `vlan100`, `vlan200` |
+| VRFs | `vrf-customer-a`, `vrf-customer-b` |
+| Logical Systems | `tenant1`, `tenant2` |
+| Bridge Domains | `bridge-1`, `bridge-2` |
+
+## Basic Usage
+
+### Query with Context
+
+```python
+from snmpkit.manager import Manager
+
+async with Manager("192.168.1.1", version=2) as mgr:
+    # Default context (empty string)
+    value = await mgr.get("1.3.6.1.2.1.1.1.0")
+
+    # Specific context
+    value = await mgr.get("1.3.6.1.2.1.1.1.0", context="vlan100")
+```
+
+### SNMPv2c Context
+
+For v2c, context is encoded in the community string:
+
+```python
+# Traditional community string
+async with Manager("192.168.1.1", community="public") as mgr:
+    value = await mgr.get("1.3.6.1.2.1.1.1.0")
+
+# Community with context (Cisco format)
+async with Manager("192.168.1.1", community="public@vlan100") as mgr:
+    value = await mgr.get("1.3.6.1.2.1.17.4.3.1.1")  # dot1dTpFdbAddress
+```
+
+### SNMPv3 Context
+
+SNMPv3 has native context support:
+
+```python
+from snmpkit.manager import Manager, USMUser
+
+user = USMUser(username="admin", auth_key="password", auth_protocol="SHA256")
+
+async with Manager("192.168.1.1", version=3, user=user) as mgr:
+    # Query default context
+    value = await mgr.get("1.3.6.1.2.1.1.1.0")
+
+    # Query specific context
+    value = await mgr.get("1.3.6.1.2.1.1.1.0", context="vrf-mgmt")
+
+    # Walk with context
+    async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.17.4.3", context="vlan100"):
+        print(f"{oid} = {value}")
+```
+
+## VLAN-Based Contexts
+
+### Cisco Catalyst (community string indexing)
+
+```python
+async def get_mac_table(host: str, vlan: int) -> dict:
+    community = f"public@{vlan}"
+    macs = {}
+
+    async with Manager(host, community=community) as mgr:
+        async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.17.4.3.1.1"):
+            idx = oid.split(".")[-6:]
+            mac = ":".join(f"{int(x):02x}" for x in idx)
+            macs[mac] = value
+
+    return macs
+
+# Get MAC addresses for VLAN 100
+macs = await get_mac_table("192.168.1.1", 100)
+```
+
+### Query All VLANs
+
+```python
+async def get_all_vlans(host: str) -> list[int]:
+    vlans = []
+    async with Manager(host) as mgr:
+        async for oid, value in mgr.bulk_walk("1.3.6.1.4.1.9.9.46.1.3.1.1.2"):
+            vlan_id = int(oid.split(".")[-1])
+            if value == 1:  # operational
+                vlans.append(vlan_id)
+    return vlans
+
+async def get_full_mac_table(host: str) -> dict:
+    vlans = await get_all_vlans(host)
+    all_macs = {}
+
+    for vlan in vlans:
+        macs = await get_mac_table(host, vlan)
+        for mac, port in macs.items():
+            all_macs[mac] = {"vlan": vlan, "port": port}
+
+    return all_macs
+```
+
+## VRF-Based Contexts
+
+### Query VRF-Specific Data
+
+```python
+async def get_vrf_routes(host: str, vrf: str) -> list[dict]:
+    routes = []
+
+    async with Manager(host, version=3, user=user) as mgr:
+        async for oid, value in mgr.bulk_walk(
+            "1.3.6.1.2.1.4.24.4.1",  # ipCidrRouteTable
+            context=vrf,
+        ):
+            # Parse route entry
+            routes.append(parse_route(oid, value))
+
+    return routes
+```
+
+### Compare VRFs
+
+```python
+async def compare_vrfs(host: str, vrf1: str, vrf2: str):
+    async with Manager(host, version=3, user=user) as mgr:
+        routes1 = set()
+        async for oid, _ in mgr.bulk_walk("1.3.6.1.2.1.4.24.4.1.1", context=vrf1):
+            routes1.add(oid)
+
+        routes2 = set()
+        async for oid, _ in mgr.bulk_walk("1.3.6.1.2.1.4.24.4.1.1", context=vrf2):
+            routes2.add(oid)
+
+        only_in_vrf1 = routes1 - routes2
+        only_in_vrf2 = routes2 - routes1
+
+        print(f"Only in {vrf1}: {len(only_in_vrf1)}")
+        print(f"Only in {vrf2}: {len(only_in_vrf2)}")
+```
+
+## Context Engine ID
+
+SNMPv3 contexts are scoped to an engine:
+
+```python
+async with Manager("192.168.1.1", version=3, user=user) as mgr:
+    # Context engine defaults to the remote agent's engine
+    value = await mgr.get("1.3.6.1.2.1.1.1.0", context="mycontext")
+
+    # Explicit context engine ID (for proxy scenarios)
+    value = await mgr.get(
+        "1.3.6.1.2.1.1.1.0",
+        context="mycontext",
+        context_engine_id=bytes.fromhex("80001234..."),
+    )
+```
+
+## Multi-Context Polling
+
+### Poll Same OID Across Contexts
+
+```python
+async def poll_all_contexts(host: str, oid: str, contexts: list[str]) -> dict:
+    results = {}
+
+    async with Manager(host, version=3, user=user) as mgr:
+        for ctx in contexts:
+            try:
+                value = await mgr.get(oid, context=ctx)
+                results[ctx] = value
+            except Exception as e:
+                results[ctx] = f"error: {e}"
+
+    return results
+
+# Poll interface status across VRFs
+results = await poll_all_contexts(
+    "192.168.1.1",
+    "1.3.6.1.2.1.2.2.1.8.1",  # ifOperStatus.1
+    ["", "vrf-a", "vrf-b"],
+)
+```
+
+### Parallel Context Queries
+
+```python
+import asyncio
+
+async def poll_contexts_parallel(host: str, oid: str, contexts: list[str]) -> dict:
+    async def query_context(ctx: str):
+        async with Manager(host, version=3, user=user) as mgr:
+            try:
+                return (ctx, await mgr.get(oid, context=ctx))
+            except Exception as e:
+                return (ctx, f"error: {e}")
+
+    results = await asyncio.gather(*[query_context(ctx) for ctx in contexts])
+    return dict(results)
+```
+
+## Device-Specific Contexts
+
+### Cisco IOS/IOS-XE
+
+```python
+# VLAN-based (community@vlan)
+async with Manager("switch", community="public@100") as mgr:
+    pass
+
+# VRF-based (SNMPv3 context)
+async with Manager("router", version=3, user=user) as mgr:
+    await mgr.get("1.3.6.1.2.1.4.1.0", context="vrf:customer-a")
+```
+
+### Juniper Junos
+
+```python
+# Routing instance context
+async with Manager("router", version=3, user=user) as mgr:
+    await mgr.get("1.3.6.1.2.1.4.1.0", context="customer-vrf")
+```
+
+### Arista EOS
+
+```python
+# VRF context
+async with Manager("switch", version=3, user=user) as mgr:
+    await mgr.get("1.3.6.1.2.1.4.1.0", context="vrf-mgmt")
+```
+
+## Error Handling
+
+```python
+from snmpkit.manager.exceptions import ContextError, NoSuchContextError
+
+try:
+    async with Manager("192.168.1.1", version=3, user=user) as mgr:
+        value = await mgr.get("1.3.6.1.2.1.1.1.0", context="nonexistent")
+except NoSuchContextError:
+    print("Context does not exist on this device")
+except ContextError as e:
+    print(f"Context error: {e}")
+```
+
+## Listing Available Contexts
+
+### SNMP-VIEW-BASED-ACM-MIB
+
+```python
+async def list_contexts(host: str) -> list[str]:
+    contexts = []
+
+    async with Manager(host, version=3, user=user) as mgr:
+        # vacmContextTable
+        async for oid, value in mgr.bulk_walk("1.3.6.1.6.3.16.1.1"):
+            context_name = str(value)
+            contexts.append(context_name)
+
+    return contexts
+```
+
+## Next Steps
+
+- [SNMPv3](/docs/manager/snmpv3) — Security configuration
+- [Tables](/docs/manager/tables) — Query context-specific tables

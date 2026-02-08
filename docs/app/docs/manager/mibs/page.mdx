@@ -1,0 +1,317 @@
+import { Tabs, Callout } from 'nextra/components'
+
+# MIB Support
+
+Work with MIBs for human-readable OID names.
+
+## Overview
+
+MIBs (Management Information Bases) define the structure and meaning of SNMP data. Instead of numeric OIDs like `1.3.6.1.2.1.1.1.0`, you can use symbolic names like `SNMPv2-MIB::sysDescr.0`.
+
+## Loading MIBs
+
+### Built-in MIBs
+
+snmpkit includes common standard MIBs:
+
+```python
+from snmpkit.mibs import MibRegistry
+
+registry = MibRegistry()
+
+# Standard MIBs are loaded automatically
+oid = registry.resolve("SNMPv2-MIB::sysDescr.0")
+print(oid)  # 1.3.6.1.2.1.1.1.0
+```
+
+Included MIBs:
+- SNMPv2-MIB (system, snmp groups)
+- IF-MIB (interfaces)
+- IP-MIB (IP statistics)
+- TCP-MIB (TCP statistics)
+- UDP-MIB (UDP statistics)
+- HOST-RESOURCES-MIB (host resources)
+- ENTITY-MIB (physical entities)
+
+### Loading Custom MIBs
+
+```python
+from snmpkit.mibs import MibRegistry
+
+registry = MibRegistry()
+
+# Load from file
+registry.load("./mibs/MY-CUSTOM-MIB.txt")
+
+# Load from directory (all .txt and .mib files)
+registry.load_directory("./mibs/")
+
+# Now use custom OIDs
+oid = registry.resolve("MY-CUSTOM-MIB::myCustomObject.0")
+```
+
+### MIB Search Path
+
+```python
+registry = MibRegistry(
+    search_paths=[
+        "./mibs",
+        "/usr/share/snmp/mibs",
+        "~/.snmp/mibs",
+    ]
+)
+
+# Loads from search paths
+registry.load("CISCO-ENVMON-MIB")
+```
+
+## Using with Manager
+
+### Symbolic Names in Queries
+
+```python
+from snmpkit.manager import Manager
+from snmpkit.mibs import MibRegistry
+
+registry = MibRegistry()
+registry.load_directory("./mibs")
+
+async with Manager("192.168.1.1", mib_registry=registry) as mgr:
+    # Use symbolic names
+    descr = await mgr.get("SNMPv2-MIB::sysDescr.0")
+    uptime = await mgr.get("SNMPv2-MIB::sysUpTime.0")
+
+    # Walk with symbolic names
+    async for oid, value in mgr.bulk_walk("IF-MIB::ifDescr"):
+        print(f"{oid} = {value}")
+```
+
+### Resolving Response OIDs
+
+```python
+async with Manager("192.168.1.1", mib_registry=registry) as mgr:
+    async for oid, value in mgr.bulk_walk("IF-MIB::ifTable"):
+        # Convert numeric OID to symbolic name
+        name = registry.lookup(oid)
+        print(f"{name} = {value}")
+        # Output: IF-MIB::ifDescr.1 = eth0
+```
+
+## MIB Compilation
+
+### Compiling MIBs
+
+For faster loading, compile MIBs to a binary format:
+
+```python
+from snmpkit.mibs import compile_mibs
+
+# Compile MIB files to binary cache
+compile_mibs(
+    sources=["./mibs/MY-CUSTOM-MIB.txt"],
+    output="./mibs/compiled/",
+)
+```
+
+### Loading Compiled MIBs
+
+```python
+registry = MibRegistry()
+registry.load_compiled("./mibs/compiled/MY-CUSTOM-MIB.bin")
+```
+
+<Callout type="info">
+Compiled MIBs load 10-50x faster than parsing text MIBs. Useful for applications with many MIBs.
+</Callout>
+
+## OID Resolution
+
+### Name to OID
+
+```python
+from snmpkit.mibs import MibRegistry
+
+registry = MibRegistry()
+
+# Full symbolic name
+oid = registry.resolve("SNMPv2-MIB::sysDescr.0")
+
+# With index
+oid = registry.resolve("IF-MIB::ifDescr.2")
+
+# Table entry
+oid = registry.resolve("IF-MIB::ifEntry.1.2")
+```
+
+### OID to Name
+
+```python
+# Numeric OID to symbolic
+name = registry.lookup("1.3.6.1.2.1.1.1.0")
+print(name)  # SNMPv2-MIB::sysDescr.0
+
+# With OID object
+from snmpkit.core import Oid
+name = registry.lookup(Oid("1.3.6.1.2.1.2.2.1.2.1"))
+print(name)  # IF-MIB::ifDescr.1
+```
+
+### Partial Resolution
+
+```python
+# Resolve as much as possible
+name = registry.lookup("1.3.6.1.4.1.9.9.13.1.3.1.2.1")
+print(name)  # CISCO-ENVMON-MIB::ciscoEnvMonTemperatureStatusValue.1
+
+# Unknown OID returns numeric string
+name = registry.lookup("1.3.6.1.4.1.99999.1.2.3")
+print(name)  # 1.3.6.1.4.1.99999.1.2.3
+```
+
+## Object Information
+
+### Getting Object Metadata
+
+```python
+obj = registry.get_object("IF-MIB::ifDescr")
+
+print(obj.name)        # ifDescr
+print(obj.oid)         # 1.3.6.1.2.1.2.2.1.2
+print(obj.syntax)      # DisplayString
+print(obj.access)      # read-only
+print(obj.status)      # current
+print(obj.description) # "A textual string containing information..."
+```
+
+### Enumerations
+
+```python
+obj = registry.get_object("IF-MIB::ifOperStatus")
+
+# Get enumeration values
+for value, name in obj.enumerations.items():
+    print(f"{value}: {name}")
+# 1: up
+# 2: down
+# 3: testing
+# 4: unknown
+# 5: dormant
+# 6: notPresent
+# 7: lowerLayerDown
+
+# Decode a value
+status_value = 2
+status_name = obj.enumerations.get(status_value, "unknown")
+print(f"Interface status: {status_name}")  # down
+```
+
+### Table Indices
+
+```python
+obj = registry.get_object("IF-MIB::ifEntry")
+
+print(obj.indices)  # ['ifIndex']
+
+# For complex tables
+obj = registry.get_object("IP-MIB::ipNetToMediaEntry")
+print(obj.indices)  # ['ipNetToMediaIfIndex', 'ipNetToMediaNetAddress']
+```
+
+## Value Display
+
+### Formatted Output
+
+```python
+from snmpkit.mibs import format_value
+
+# Format according to MIB syntax
+registry = MibRegistry()
+
+# TimeTicks to human-readable
+value = registry.format_value("SNMPv2-MIB::sysUpTime.0", 123456789)
+print(value)  # 14 days, 6:17:47.89
+
+# DisplayString
+value = registry.format_value("SNMPv2-MIB::sysDescr.0", b"Linux router 5.4.0")
+print(value)  # Linux router 5.4.0
+
+# PhysAddress (MAC)
+value = registry.format_value("IF-MIB::ifPhysAddress.1", b"\x00\x1a\x2b\x3c\x4d\x5e")
+print(value)  # 00:1a:2b:3c:4d:5e
+
+# IpAddress
+value = registry.format_value("IP-MIB::ipAdEntAddr.1", (192, 168, 1, 1))
+print(value)  # 192.168.1.1
+```
+
+### Enumeration Display
+
+```python
+# Automatic enum resolution
+value = registry.format_value("IF-MIB::ifOperStatus.1", 1)
+print(value)  # up(1)
+
+# Just the name
+value = registry.format_value("IF-MIB::ifOperStatus.1", 1, show_numeric=False)
+print(value)  # up
+```
+
+## Textual Conventions
+
+MIBs define textual conventions for common types:
+
+```python
+tc = registry.get_textual_convention("DisplayString")
+print(tc.base_type)    # OCTET STRING
+print(tc.constraints)  # SIZE (0..255)
+
+tc = registry.get_textual_convention("MacAddress")
+print(tc.base_type)    # OCTET STRING
+print(tc.constraints)  # SIZE (6)
+print(tc.display_hint) # 1x:
+```
+
+## Example: Interface Report
+
+```python
+import asyncio
+from snmpkit.manager import Manager
+from snmpkit.mibs import MibRegistry
+
+async def interface_report(host: str):
+    registry = MibRegistry()
+
+    async with Manager(host, mib_registry=registry) as mgr:
+        interfaces = {}
+
+        columns = ["ifDescr", "ifType", "ifMtu", "ifSpeed", "ifOperStatus", "ifInOctets", "ifOutOctets"]
+
+        for col in columns:
+            async for oid, value in mgr.bulk_walk(f"IF-MIB::{col}"):
+                idx = oid.split(".")[-1]
+                if idx not in interfaces:
+                    interfaces[idx] = {}
+
+                # Get enum name for ifOperStatus
+                if col == "ifOperStatus":
+                    obj = registry.get_object("IF-MIB::ifOperStatus")
+                    value = obj.enumerations.get(int(value), str(value))
+
+                interfaces[idx][col] = value
+
+        for idx, iface in interfaces.items():
+            print(f"\nInterface {idx}: {iface.get('ifDescr', 'unknown')}")
+            print(f"  Type: {iface.get('ifType')}")
+            print(f"  MTU: {iface.get('ifMtu')}")
+            print(f"  Speed: {int(iface.get('ifSpeed', 0)) // 1_000_000} Mbps")
+            print(f"  Status: {iface.get('ifOperStatus')}")
+            print(f"  In: {int(iface.get('ifInOctets', 0)) / 1024 / 1024:.1f} MB")
+            print(f"  Out: {int(iface.get('ifOutOctets', 0)) / 1024 / 1024:.1f} MB")
+
+asyncio.run(interface_report("192.168.1.1"))
+```
+
+## Next Steps
+
+- [Tables](/docs/manager/tables) — Efficient table operations
+- [Operations](/docs/manager/operations) — Full API reference

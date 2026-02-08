@@ -27,5 +27,29 @@
         "snmpkit": 967520
       }
     }
+  },
+  "manager": {
+    "runs": [
+      {
+        "timestamp": "2026-02-08T16:10:13.306750",
+        "results": {
+          "ber": {
+            "snmpkit": {"mean": 0.58, "std": 0.87},
+            "pysnmp": {"mean": 73.44, "std": 14.30},
+            "speedup": 126.8
+          },
+          "get": {
+            "snmpkit": {"mean": 0.12, "std": 0.02},
+            "pysnmp": {"mean": 1.02, "std": 2.93},
+            "speedup": 8.5
+          },
+          "walk": {
+            "snmpkit": {"mean": 0.78, "std": 0.09, "count": 38},
+            "pysnmp": {"mean": 10.86, "std": 9.88, "count": 45},
+            "speedup": 13.9
+          }
+        }
+      }
+    ]
   }
 }

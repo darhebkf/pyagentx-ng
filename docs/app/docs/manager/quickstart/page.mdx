@@ -1,0 +1,161 @@
+import { Tabs, Callout } from 'nextra/components'
+
+# Quickstart
+
+Query an SNMP device in 5 minutes.
+
+## Install
+
+<Tabs items={['pip', 'uv', 'pdm']}>
+  <Tabs.Tab>
+```bash
+pip install snmpkit
+```
+  </Tabs.Tab>
+  <Tabs.Tab>
+```bash
+uv add snmpkit
+```
+  </Tabs.Tab>
+  <Tabs.Tab>
+```bash
+pdm add snmpkit
+```
+  </Tabs.Tab>
+</Tabs>
+
+## Basic Query
+
+```python filename="query.py"
+import asyncio
+from snmpkit.manager import Manager
+
+async def main():
+    async with Manager("192.168.1.1", community="public") as mgr:
+        # Get system description
+        descr = await mgr.get("1.3.6.1.2.1.1.1.0")
+        print(f"Device: {descr}")
+
+        # Get system uptime
+        uptime = await mgr.get("1.3.6.1.2.1.1.3.0")
+        print(f"Uptime: {uptime}")
+
+asyncio.run(main())
+```
+
+<Callout type="info">
+Replace `192.168.1.1` with your device's IP address and `public` with the correct community string.
+</Callout>
+
+## Walking a Table
+
+```python filename="walk_interfaces.py"
+import asyncio
+from snmpkit.manager import Manager
+
+async def main():
+    async with Manager("192.168.1.1") as mgr:
+        # Walk interface descriptions
+        async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.2.2.1.2"):
+            print(f"{oid} = {value}")
+
+asyncio.run(main())
+```
+
+Output:
+```
+1.3.6.1.2.1.2.2.1.2.1 = lo
+1.3.6.1.2.1.2.2.1.2.2 = eth0
+1.3.6.1.2.1.2.2.1.2.3 = eth1
+```
+
+## Multiple OIDs
+
+```python filename="get_many.py"
+import asyncio
+from snmpkit.manager import Manager
+
+SYSTEM_OIDS = [
+    "1.3.6.1.2.1.1.1.0",  # sysDescr
+    "1.3.6.1.2.1.1.3.0",  # sysUpTime
+    "1.3.6.1.2.1.1.4.0",  # sysContact
+    "1.3.6.1.2.1.1.5.0",  # sysName
+    "1.3.6.1.2.1.1.6.0",  # sysLocation
+]
+
+async def main():
+    async with Manager("192.168.1.1") as mgr:
+        values = await mgr.get_many(*SYSTEM_OIDS)
+
+        print(f"Description: {values[0]}")
+        print(f"Uptime:      {values[1]}")
+        print(f"Contact:     {values[2]}")
+        print(f"Name:        {values[3]}")
+        print(f"Location:    {values[4]}")
+
+asyncio.run(main())
+```
+
+## Error Handling
+
+```python filename="error_handling.py"
+import asyncio
+from snmpkit.manager import Manager
+from snmpkit.manager.exceptions import (
+    TimeoutError,
+    NoSuchObjectError,
+    NoSuchInstanceError,
+)
+
+async def main():
+    try:
+        async with Manager("192.168.1.1", timeout=2.0, retries=2) as mgr:
+            value = await mgr.get("1.3.6.1.2.1.1.1.0")
+            print(value)
+    except TimeoutError:
+        print("Device not responding")
+    except NoSuchObjectError:
+        print("OID does not exist")
+    except NoSuchInstanceError:
+        print("Instance does not exist")
+
+asyncio.run(main())
+```
+
+## Testing Locally
+
+To test without a real device, run snmpd locally:
+
+<Tabs items={['Ubuntu/Debian', 'RHEL/CentOS', 'macOS']}>
+  <Tabs.Tab>
+```bash
+sudo apt install snmpd snmp
+sudo systemctl start snmpd
+```
+  </Tabs.Tab>
+  <Tabs.Tab>
+```bash
+sudo dnf install net-snmp net-snmp-utils
+sudo systemctl start snmpd
+```
+  </Tabs.Tab>
+  <Tabs.Tab>
+```bash
+brew install net-snmp
+sudo snmpd -f -Lo
+```
+  </Tabs.Tab>
+</Tabs>
+
+Then query localhost:
+
+```python
+async with Manager("localhost") as mgr:
+    descr = await mgr.get("1.3.6.1.2.1.1.1.0")
+    print(descr)
+```
+
+## Next Steps
+
+- [Operations](/docs/manager/operations) — Full API reference
+- [Performance](/docs/manager/performance) — Benchmark details
