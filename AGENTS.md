@@ -12,6 +12,7 @@ snmpkit is a cross-platform SNMP toolkit aiming to:
 
 Current features:
 - **SNMP Manager** (RFC 3411+) - Query SNMP devices (GET, SET, WALK, BULK) - COMPLETE
+- **SNMPv3 Security** (RFC 3414, 3826, 7860) - USM auth/priv crypto - COMPLETE
 - **AgentX subagent** (RFC 2741) - Extend SNMP agents with custom data - COMPLETE
 
 ## Architecture
@@ -95,13 +96,16 @@ snmpkit/
 │       ├── pdu.rs          # PDU types
 │       ├── message.rs      # v1/v2c messages
 │       ├── v3.rs           # v3 messages
-│       ├── usm.rs          # USM security
+│       ├── usm.rs          # USM security parameters
+│       ├── auth.rs          # Authentication (HMAC-MD5/SHA/SHA2)
+│       ├── privacy.rs       # Encryption (DES-CBC, AES-CFB)
+│       ├── discovery.rs     # Engine discovery
 │       └── bindings.rs     # PyO3 bindings
 ├── python/snmpkit/         # Python package
 │   ├── __init__.py
 │   ├── core/               # Rust bindings (built by maturin)
 │   ├── agent/              # Python AgentX API
-│   └── manager/            # Python Manager API (in progress)
+│   └── manager/            # Python Manager API (v1/v2c/v3)
 ├── docs/                   # TypeScript/Nextra docs
 │   ├── app/
 │   └── package.json
@@ -192,8 +196,8 @@ Files to keep in sync:
 ## Version Roadmap
 
 - **v1.0.1** - AgentX subagent (RELEASED)
-- **v1.1.0** - Python Manager API (COMPLETE - pending release)
-- **v1.2.0** - SNMPv3 Security (USM crypto)
+- **v1.1.0** - Python Manager API (RELEASED)
+- **v1.2.0** - SNMPv3 Security (USM crypto) (COMPLETE)
 - **v2.0.0** - Pure Rust SNMP Stack
 - **v2.1.0** - CLI Tools
 - **v3.0.0** - Multi-Language Bindings
