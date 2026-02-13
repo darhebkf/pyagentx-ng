@@ -5,7 +5,7 @@ import snmpkit
 
 def test_version():
     """Test that version is exposed."""
-    assert snmpkit.__version__ == "1.1.0"
+    assert snmpkit.__version__ == "1.2.0"
 
 
 def test_import():

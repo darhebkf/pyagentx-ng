@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-02-11
+
+### Added
+
+- **SNMPv3 Security (USM)**
+  - Full RFC 3414 (USM), RFC 3826 (AES), RFC 7860 (HMAC-SHA-2) implementation
+  - Authentication: HMAC-MD5-96, HMAC-SHA-96, HMAC-SHA-224/256/384/512
+  - Privacy: DES-CBC, AES-128-CFB encryption/decryption
+  - Key derivation: password_to_key (RFC 3414 A.2.1), localize_key (RFC 3414 A.2.2)
+  - Automatic engine discovery on connect for SNMPv3
+
+- **Manager SNMPv3 Support**
+  - `Manager(version=3, user=..., auth_protocol=..., auth_password=..., priv_protocol=..., priv_password=...)`
+  - authPriv, authNoPriv, and noAuthNoPriv security levels
+  - Automatic engine ID/boots/time discovery via Report PDU
+  - Localized key derivation from passwords
+  - All operations (get, set, walk, bulk_walk) work with SNMPv3
+
+- **Rust Crypto Modules**
+  - `src/snmp/auth.rs` - HMAC authentication with all 6 hash algorithms
+  - `src/snmp/privacy.rs` - DES-CBC and AES-CFB-128 encrypt/decrypt
+  - `src/snmp/discovery.rs` - Engine discovery helpers
+  - Secure v3 encode/decode PyO3 bindings
+
 ## [1.1.0] - 2026-02-08
 
 ### Added
@@ -94,7 +118,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Python 3.14+
 - Rust 1.83.0+
 
-[Unreleased]: https://github.com/darhebkf/snmpkit/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/darhebkf/snmpkit/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/darhebkf/snmpkit/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/darhebkf/snmpkit/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/darhebkf/snmpkit/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/darhebkf/snmpkit/releases/tag/v1.0.0
