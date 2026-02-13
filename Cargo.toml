@@ -12,6 +12,21 @@ pyo3 = "0.27"
 bitflags = "2"
 rayon = { version = "1.10", optional = true }
 
+# SNMPv3 USM crypto (RFC 3414, RFC 3826, RFC 7860)
+md-5 = "0.10"
+sha1 = "0.10"
+sha2 = "0.10"
+hmac = "0.12"
+des = "0.8"
+aes = "0.8"
+cbc = "0.1"
+cfb-mode = "0.8"
+digest = "0.10"
+cipher = "0.4"
+
+[dev-dependencies]
+hex-literal = "0.4"
+
 [features]
 extension-module = ["pyo3/extension-module"]
 parallel = ["rayon"]
