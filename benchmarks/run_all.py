@@ -74,7 +74,7 @@ async def main():
     try:
         with open(output_file) as f:
             data = json.load(f)
-    except FileNotFoundError, json.JSONDecodeError:
+    except (FileNotFoundError, json.JSONDecodeError):
         data = {"agent": {}, "manager": {"runs": []}}
 
     if "manager" not in data:
