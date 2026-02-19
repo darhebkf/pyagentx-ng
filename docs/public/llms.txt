@@ -8,7 +8,7 @@ High-performance SNMP toolkit for Python, powered by Rust.
 pip install snmpkit
 ```
 
-Requires Python 3.14+.
+Requires Python 3.11+.
 
 ## Quick Start
 
