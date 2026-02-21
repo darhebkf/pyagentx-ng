@@ -153,6 +153,41 @@ impl MessageV2c {
         }
     }
 
+    pub fn trap_v2(
+        community: impl Into<Vec<u8>>,
+        request_id: i32,
+        varbinds: Vec<super::pdu::VarBind>,
+    ) -> Self {
+        MessageV2c::Standard {
+            community: community.into(),
+            pdu: Pdu::trap_v2(request_id, varbinds),
+        }
+    }
+
+    pub fn inform_request(
+        community: impl Into<Vec<u8>>,
+        request_id: i32,
+        varbinds: Vec<super::pdu::VarBind>,
+    ) -> Self {
+        MessageV2c::Standard {
+            community: community.into(),
+            pdu: Pdu::inform_request(request_id, varbinds),
+        }
+    }
+
+    pub fn response(
+        community: impl Into<Vec<u8>>,
+        request_id: i32,
+        error_status: super::pdu::ErrorStatus,
+        error_index: i32,
+        varbinds: Vec<super::pdu::VarBind>,
+    ) -> Self {
+        MessageV2c::Standard {
+            community: community.into(),
+            pdu: Pdu::response(request_id, error_status, error_index, varbinds),
+        }
+    }
+
     pub fn community(&self) -> &[u8] {
         match self {
             MessageV2c::Standard { community, .. } => community,
@@ -280,6 +315,80 @@ mod tests {
                 assert_eq!(pdu.max_repetitions, 10);
             }
             _ => panic!("expected Bulk"),
+        }
+    }
+
+    #[test]
+    fn test_message_v2c_trap_v2_roundtrip() {
+        let oid: Oid = "1.3.6.1.6.3.1.1.4.1.0".parse().unwrap();
+        let vb = super::super::pdu::VarBind::new(
+            oid,
+            crate::types::Value::ObjectIdentifier("1.3.6.1.4.1.99".parse().unwrap()),
+        );
+        let msg = MessageV2c::trap_v2(b"public", 42, vec![vb]);
+
+        let mut buf = Vec::new();
+        msg.encode(&mut buf).unwrap();
+
+        let (decoded, _) = MessageV2c::decode(&buf).unwrap();
+        match decoded {
+            MessageV2c::Standard { pdu, .. } => {
+                assert_eq!(pdu.pdu_type, PduType::TrapV2);
+                assert_eq!(pdu.request_id, 42);
+                assert_eq!(pdu.varbinds.len(), 1);
+            }
+            _ => panic!("expected Standard"),
+        }
+    }
+
+    #[test]
+    fn test_message_v2c_inform_roundtrip() {
+        let oid: Oid = "1.3.6.1.6.3.1.1.4.1.0".parse().unwrap();
+        let vb = super::super::pdu::VarBind::new(
+            oid,
+            crate::types::Value::ObjectIdentifier("1.3.6.1.4.1.99".parse().unwrap()),
+        );
+        let msg = MessageV2c::inform_request(b"public", 99, vec![vb]);
+
+        let mut buf = Vec::new();
+        msg.encode(&mut buf).unwrap();
+
+        let (decoded, _) = MessageV2c::decode(&buf).unwrap();
+        match decoded {
+            MessageV2c::Standard { pdu, .. } => {
+                assert_eq!(pdu.pdu_type, PduType::InformRequest);
+                assert_eq!(pdu.request_id, 99);
+            }
+            _ => panic!("expected Standard"),
+        }
+    }
+
+    #[test]
+    fn test_message_v2c_response_roundtrip() {
+        let oid: Oid = "1.3.6.1.2.1.1.1.0".parse().unwrap();
+        let vb = super::super::pdu::VarBind::new(
+            oid,
+            crate::types::Value::OctetString(b"Linux".to_vec()),
+        );
+        let msg = MessageV2c::response(
+            b"public",
+            12345,
+            super::super::pdu::ErrorStatus::NoError,
+            0,
+            vec![vb],
+        );
+
+        let mut buf = Vec::new();
+        msg.encode(&mut buf).unwrap();
+
+        let (decoded, _) = MessageV2c::decode(&buf).unwrap();
+        match decoded {
+            MessageV2c::Standard { pdu, .. } => {
+                assert_eq!(pdu.pdu_type, PduType::Response);
+                assert_eq!(pdu.request_id, 12345);
+                assert_eq!(pdu.error_status, super::super::pdu::ErrorStatus::NoError);
+            }
+            _ => panic!("expected Standard"),
         }
     }
 

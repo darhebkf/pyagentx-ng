@@ -111,6 +111,20 @@ fn snmpkit_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
 
+    // Trap/Inform/Response v2c
+    m.add_function(pyo3::wrap_pyfunction!(
+        snmp::bindings::encode_snmp_trap_v2c,
+        m
+    )?)?;
+    m.add_function(pyo3::wrap_pyfunction!(
+        snmp::bindings::encode_snmp_inform_v2c,
+        m
+    )?)?;
+    m.add_function(pyo3::wrap_pyfunction!(
+        snmp::bindings::encode_snmp_response_v2c,
+        m
+    )?)?;
+
     // SNMPv3 USM crypto bindings
     m.add_function(pyo3::wrap_pyfunction!(snmp::bindings::password_to_key, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(snmp::bindings::localize_key, m)?)?;
@@ -144,6 +158,27 @@ fn snmpkit_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     m.add_function(pyo3::wrap_pyfunction!(
         snmp::bindings::decode_snmp_v3_response,
+        m
+    )?)?;
+
+    // Trap/Inform/Response v3 secure
+    m.add_function(pyo3::wrap_pyfunction!(
+        snmp::bindings::encode_snmp_trap_v3_secure,
+        m
+    )?)?;
+    m.add_function(pyo3::wrap_pyfunction!(
+        snmp::bindings::encode_snmp_inform_v3_secure,
+        m
+    )?)?;
+    m.add_function(pyo3::wrap_pyfunction!(
+        snmp::bindings::encode_snmp_response_v3_secure,
+        m
+    )?)?;
+
+    // Generic message decoder
+    m.add_class::<snmp::bindings::PySnmpMessage>()?;
+    m.add_function(pyo3::wrap_pyfunction!(
+        snmp::bindings::decode_snmp_message,
         m
     )?)?;
 

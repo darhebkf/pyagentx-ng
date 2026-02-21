@@ -135,6 +135,20 @@ impl Value {
     fn __eq__(&self, other: &Self) -> bool {
         self == other
     }
+
+    fn __str__(&self) -> String {
+        self.to_string()
+    }
+
+    fn __repr__(&self) -> String {
+        match self {
+            Value::Null()
+            | Value::NoSuchObject()
+            | Value::NoSuchInstance()
+            | Value::EndOfMibView() => format!("Value.{}()", self.type_name()),
+            _ => format!("Value.{}({})", self.type_name(), self),
+        }
+    }
 }
 
 impl fmt::Display for Value {
