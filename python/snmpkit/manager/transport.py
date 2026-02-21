@@ -45,6 +45,12 @@ class UdpTransport:
             self.transport = None
             self.protocol = None
 
+    async def send_only(self, data: bytes) -> None:
+        """Send data without waiting for a response (fire-and-forget)."""
+        if self.transport is None:
+            raise RuntimeError("Transport not connected")
+        self.transport.sendto(data)
+
     async def send_request(self, data: bytes) -> bytes:
         """Send request and wait for response with retries."""
         if self.transport is None or self.protocol is None:

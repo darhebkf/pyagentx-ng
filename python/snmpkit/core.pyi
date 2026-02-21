@@ -295,3 +295,197 @@ def encode_snmp_getbulk_v3(
     priv_: bool = False,
 ) -> bytes: ...
 def decode_snmp_response(data: bytes) -> SnmpResponse: ...
+
+# Trap/Inform/Response v2c
+
+def encode_snmp_trap_v2c(
+    community: str,
+    request_id: int,
+    varbinds: list[SnmpVarBind],
+) -> bytes: ...
+def encode_snmp_inform_v2c(
+    community: str,
+    request_id: int,
+    varbinds: list[SnmpVarBind],
+) -> bytes: ...
+def encode_snmp_response_v2c(
+    community: str,
+    request_id: int,
+    error_status: int,
+    error_index: int,
+    varbinds: list[SnmpVarBind],
+) -> bytes: ...
+
+# SNMPv3 secure encode
+
+def encode_snmp_get_v3_secure(
+    msg_id: int,
+    request_id: int,
+    oids: list[Oid],
+    engine_id: bytes,
+    engine_boots: int,
+    engine_time: int,
+    user_name: str,
+    context_name: bytes = b"",
+    auth_protocol: str | None = None,
+    auth_key: bytes | None = None,
+    priv_protocol: str | None = None,
+    priv_key: bytes | None = None,
+) -> bytes: ...
+def encode_snmp_getnext_v3_secure(
+    msg_id: int,
+    request_id: int,
+    oids: list[Oid],
+    engine_id: bytes,
+    engine_boots: int,
+    engine_time: int,
+    user_name: str,
+    context_name: bytes = b"",
+    auth_protocol: str | None = None,
+    auth_key: bytes | None = None,
+    priv_protocol: str | None = None,
+    priv_key: bytes | None = None,
+) -> bytes: ...
+def encode_snmp_getbulk_v3_secure(
+    msg_id: int,
+    request_id: int,
+    non_repeaters: int,
+    max_repetitions: int,
+    oids: list[Oid],
+    engine_id: bytes,
+    engine_boots: int,
+    engine_time: int,
+    user_name: str,
+    context_name: bytes = b"",
+    auth_protocol: str | None = None,
+    auth_key: bytes | None = None,
+    priv_protocol: str | None = None,
+    priv_key: bytes | None = None,
+) -> bytes: ...
+def encode_snmp_set_v3_secure(
+    msg_id: int,
+    request_id: int,
+    varbinds: list[SnmpVarBind],
+    engine_id: bytes,
+    engine_boots: int,
+    engine_time: int,
+    user_name: str,
+    context_name: bytes = b"",
+    auth_protocol: str | None = None,
+    auth_key: bytes | None = None,
+    priv_protocol: str | None = None,
+    priv_key: bytes | None = None,
+) -> bytes: ...
+
+# Trap/Inform/Response v3 secure
+
+def encode_snmp_trap_v3_secure(
+    msg_id: int,
+    request_id: int,
+    varbinds: list[SnmpVarBind],
+    engine_id: bytes,
+    engine_boots: int,
+    engine_time: int,
+    user_name: str,
+    context_name: bytes = b"",
+    auth_protocol: str | None = None,
+    auth_key: bytes | None = None,
+    priv_protocol: str | None = None,
+    priv_key: bytes | None = None,
+) -> bytes: ...
+def encode_snmp_inform_v3_secure(
+    msg_id: int,
+    request_id: int,
+    varbinds: list[SnmpVarBind],
+    engine_id: bytes,
+    engine_boots: int,
+    engine_time: int,
+    user_name: str,
+    context_name: bytes = b"",
+    auth_protocol: str | None = None,
+    auth_key: bytes | None = None,
+    priv_protocol: str | None = None,
+    priv_key: bytes | None = None,
+) -> bytes: ...
+def encode_snmp_response_v3_secure(
+    msg_id: int,
+    request_id: int,
+    error_status: int,
+    error_index: int,
+    varbinds: list[SnmpVarBind],
+    engine_id: bytes,
+    engine_boots: int,
+    engine_time: int,
+    user_name: str,
+    context_name: bytes = b"",
+    auth_protocol: str | None = None,
+    auth_key: bytes | None = None,
+    priv_protocol: str | None = None,
+    priv_key: bytes | None = None,
+) -> bytes: ...
+
+# SNMPv3 response decode
+
+def decode_snmp_v3_response(
+    data: bytes,
+    auth_protocol: str | None = None,
+    auth_key: bytes | None = None,
+    priv_protocol: str | None = None,
+    priv_key: bytes | None = None,
+    engine_boots: int = 0,
+    engine_time: int = 0,
+) -> SnmpResponse: ...
+
+# SNMPv3 USM crypto
+
+def password_to_key(password: str, protocol: str) -> bytes: ...
+def localize_key(key: bytes, engine_id: bytes, protocol: str) -> bytes: ...
+def password_to_localized_key(password: str, engine_id: bytes, protocol: str) -> bytes: ...
+def encrypt_scoped_pdu(
+    plaintext: bytes,
+    key: bytes,
+    engine_boots: int,
+    engine_time: int,
+    protocol: str,
+) -> tuple[bytes, bytes]: ...
+def decrypt_scoped_pdu(
+    ciphertext: bytes,
+    key: bytes,
+    priv_parameters: bytes,
+    engine_boots: int,
+    engine_time: int,
+    protocol: str,
+) -> bytes: ...
+
+# Generic message decoder
+
+class SnmpMessage:
+    @property
+    def version(self) -> int: ...
+    @property
+    def community(self) -> bytes: ...
+    @property
+    def pdu_type(self) -> int: ...
+    @property
+    def request_id(self) -> int: ...
+    @property
+    def error_status(self) -> int: ...
+    @property
+    def error_index(self) -> int: ...
+    @property
+    def varbinds(self) -> list[SnmpVarBind]: ...
+    @property
+    def msg_id(self) -> int: ...
+    @property
+    def engine_id(self) -> bytes: ...
+    @property
+    def engine_boots(self) -> int: ...
+    @property
+    def engine_time(self) -> int: ...
+    @property
+    def user_name(self) -> bytes: ...
+    @property
+    def context_name(self) -> bytes: ...
+    def __repr__(self) -> str: ...
+
+def decode_snmp_message(data: bytes) -> SnmpMessage: ...

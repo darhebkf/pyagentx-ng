@@ -9,6 +9,8 @@ from snmpkit.manager.exceptions import (
     TimeoutError,
 )
 from snmpkit.manager.manager import Manager
+from snmpkit.manager.poll import PollResult, PollTarget, poll_many
+from snmpkit.manager.trap_receiver import TrapMessage, TrapReceiver
 
 __all__ = [
     "EndOfMibViewError",
@@ -16,6 +18,11 @@ __all__ = [
     "Manager",
     "NoSuchInstanceError",
     "NoSuchObjectError",
+    "PollResult",
+    "PollTarget",
     "SnmpError",
     "TimeoutError",
+    "TrapMessage",
+    "TrapReceiver",
+    "poll_many",
 ]

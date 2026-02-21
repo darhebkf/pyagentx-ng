@@ -23,8 +23,12 @@ from snmpkit.core import (
     encode_snmp_getnext_v1,
     encode_snmp_getnext_v2c,
     encode_snmp_getnext_v3_secure,
+    encode_snmp_inform_v2c,
+    encode_snmp_inform_v3_secure,
     encode_snmp_set_v2c,
     encode_snmp_set_v3_secure,
+    encode_snmp_trap_v2c,
+    encode_snmp_trap_v3_secure,
     password_to_localized_key,
 )
 from snmpkit.manager.exceptions import (
@@ -599,19 +603,156 @@ class Manager:
                 yield (result_oid, value)
                 current = result_oid
 
+    # Trap/Inform operations
+
+    # Standard OIDs for trap varbinds
+    _SYSUPTIME_OID = "1.3.6.1.2.1.1.3.0"
+    _SNMPTRAPOID_OID = "1.3.6.1.6.3.1.1.4.1.0"
+
+    def _build_trap_varbinds(
+        self,
+        trap_oid: str,
+        varbinds: list[tuple[str, Value]] | None = None,
+        uptime: int | None = None,
+    ) -> list[SnmpVarBind]:
+        """Build standard trap varbind list (sysUpTime.0, snmpTrapOID.0, + user varbinds)."""
+        result = [
+            SnmpVarBind(Oid(self._SYSUPTIME_OID), Value.TimeTicks(uptime or 0)),
+            SnmpVarBind(Oid(self._SNMPTRAPOID_OID), Value.ObjectIdentifier(Oid(trap_oid))),
+        ]
+        if varbinds:
+            result.extend(SnmpVarBind(Oid(oid), val) for oid, val in varbinds)
+        return result
+
+    def _encode_trap(self, varbinds: list[SnmpVarBind], request_id: int) -> bytes:
+        if self.version == 3:
+            return encode_snmp_trap_v3_secure(
+                msg_id=self._next_msg_id(),
+                request_id=request_id,
+                varbinds=varbinds,
+                **self._v3_kwargs(),
+            )
+        return encode_snmp_trap_v2c(self.community, request_id, varbinds)
+
+    def _encode_inform(self, varbinds: list[SnmpVarBind], request_id: int) -> bytes:
+        if self.version == 3:
+            return encode_snmp_inform_v3_secure(
+                msg_id=self._next_msg_id(),
+                request_id=request_id,
+                varbinds=varbinds,
+                **self._v3_kwargs(),
+            )
+        return encode_snmp_inform_v2c(self.community, request_id, varbinds)
+
+    async def send_trap(
+        self,
+        trap_oid: str,
+        varbinds: list[tuple[str, Value]] | None = None,
+        uptime: int | None = None,
+    ) -> None:
+        """Send an SNMPv2c/v3 Trap (fire-and-forget, no response expected).
+
+        Args:
+            trap_oid: The trap OID (snmpTrapOID.0 value)
+            varbinds: Optional list of (oid, value) tuples
+            uptime: Optional sysUpTime in hundredths of a second
+        """
+        if self.transport is None:
+            raise RuntimeError("Not connected")
+        if self.version == 1:
+            raise ValueError("Trap not supported for SNMPv1 (use SNMPv2c or v3)")
+
+        request_id = self._next_request_id()
+        trap_varbinds = self._build_trap_varbinds(trap_oid, varbinds, uptime)
+        request = self._encode_trap(trap_varbinds, request_id)
+        await self.transport.send_only(request)
+        logger.debug("Sent trap %s", trap_oid)
+
+    async def send_inform(
+        self,
+        trap_oid: str,
+        varbinds: list[tuple[str, Value]] | None = None,
+        uptime: int | None = None,
+    ) -> None:
+        """Send an SNMPv2c/v3 Inform and wait for acknowledgement.
+
+        Args:
+            trap_oid: The trap OID (snmpTrapOID.0 value)
+            varbinds: Optional list of (oid, value) tuples
+            uptime: Optional sysUpTime in hundredths of a second
+        """
+        if self.transport is None:
+            raise RuntimeError("Not connected")
+        if self.version == 1:
+            raise ValueError("Inform not supported for SNMPv1")
+
+        request_id = self._next_request_id()
+        inform_varbinds = self._build_trap_varbinds(trap_oid, varbinds, uptime)
+        request = self._encode_inform(inform_varbinds, request_id)
+        response_data = await self.transport.send_request(request)
+        response = self._decode_response(response_data)
+        self._check_error(response.error_status, response.error_index)
+        logger.debug("Inform %s acknowledged", trap_oid)
+
+    # Table operations
+
+    async def get_table(
+        self,
+        base_oid: str,
+        columns: list[int] | None = None,
+        bulk_size: int = 25,
+    ) -> dict[tuple[int, ...], dict[int, Value]]:
+        """Get a structured SNMP table.
+
+        Walks the base_oid and organizes results into a table keyed by
+        row index. Each OID under the base is expected to be:
+          base_oid.column.index[.index2...]
+
+        Args:
+            base_oid: The table entry OID (e.g., "1.3.6.1.2.1.2.2.1")
+            columns: Optional list of column numbers to include (None = all)
+            bulk_size: Number of rows per bulk request
+
+        Returns:
+            Dict mapping index tuples to {column: value} dicts
+        """
+        base = Oid(base_oid)
+        base_parts = base.parts
+        base_len = len(base_parts)
+        table: dict[tuple[int, ...], dict[int, Value]] = {}
+
+        async for oid_str, value in self.bulk_walk(base_oid, bulk_size=bulk_size):
+            oid_parts = Oid(oid_str).parts
+            if len(oid_parts) < base_len + 2:
+                continue
+
+            column = oid_parts[base_len]
+            index = tuple(oid_parts[base_len + 1 :])
+
+            if columns is not None and column not in columns:
+                continue
+
+            if index not in table:
+                table[index] = {}
+            table[index][column] = value
+
+        return table
+
     def _check_error(self, error_status: int, error_index: int) -> None:
         if error_status != 0:
             raise GenericError(error_status, error_index)
 
+    _NO_SUCH_OBJECT = Value.NoSuchObject()
+    _NO_SUCH_INSTANCE = Value.NoSuchInstance()
+    _END_OF_MIB_VIEW = Value.EndOfMibView()
+
     def _check_exception_value(self, value: Value) -> None:
-        value_str = str(value)
-        if "NoSuchObject" in value_str:
+        if value == self._NO_SUCH_OBJECT:
             raise NoSuchObjectError("OID does not exist")
-        elif "NoSuchInstance" in value_str:
+        elif value == self._NO_SUCH_INSTANCE:
             raise NoSuchInstanceError("Instance does not exist")
-        elif "EndOfMibView" in value_str:
+        elif value == self._END_OF_MIB_VIEW:
             raise EndOfMibViewError("End of MIB view")
 
     def _is_exception_value(self, value: Value) -> bool:
-        value_str = str(value)
-        return any(x in value_str for x in ("NoSuchObject", "NoSuchInstance", "EndOfMibView"))
+        return value in (self._NO_SUCH_OBJECT, self._NO_SUCH_INSTANCE, self._END_OF_MIB_VIEW)
