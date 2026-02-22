@@ -9,16 +9,19 @@ jobs:
   # Run tests first
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Python 3.14
+      - name: Install Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.14-dev"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
@@ -58,16 +61,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Python 3.14
+      - name: Install Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.14-dev"
+          python-version: |
+            3.11
+            3.12
+            3.13
+            3.14
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist -i python3.14
+          args: --release --out dist -i python3.11 python3.12 python3.13 python3.14
           manylinux: auto
 
       - name: Upload wheels
