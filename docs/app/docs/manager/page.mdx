@@ -30,25 +30,49 @@ import { ManagerBenchmarks } from "@/components/BenchmarkChart"
 - **Fast** — Rust BER encoding, up to 127x faster than pysnmp
 - **Async-native** — Built on asyncio for concurrent requests
 - **Simple API** — Context manager, async iterators, type hints
+- **Full SNMPv3** — USM authentication (MD5 to SHA-512) and privacy (DES, AES)
+
+## Features
+
+| Feature | v1 | v2c | v3 |
+|---------|:--:|:---:|:--:|
+| GET / GET-MANY | ✓ | ✓ | ✓ |
+| GET-NEXT | ✓ | ✓ | ✓ |
+| GET-BULK | | ✓ | ✓ |
+| SET | | ✓ | ✓ |
+| WALK / BULK-WALK | ✓ | ✓ | ✓ |
+| Send Trap | | ✓ | ✓ |
+| Send Inform | | ✓ | ✓ |
+| get_table | | ✓ | ✓ |
+| poll_many | | ✓ | ✓ |
+| TrapReceiver | | ✓ | |
 
 ## Configuration
 
 ```python
 from snmpkit.manager import Manager
 
+# SNMPv2c
 mgr = Manager(
     host="192.168.1.1",
-    port=161,              # SNMP port
-    community="public",    # v1/v2c community string
-    version=2,             # 1, 2 (v2c), or 3
-    timeout=5.0,           # Request timeout (seconds)
-    retries=3,             # Retry count on timeout
+    port=161,
+    community="public",
+    version=2,
+    timeout=5.0,
+    retries=3,
+)
+
+# SNMPv3 with auth + privacy
+mgr = Manager(
+    host="192.168.1.1",
+    version=3,
+    user="admin",
+    auth_protocol="SHA256",
+    auth_password="auth_pass",
+    priv_protocol="AES",
+    priv_password="priv_pass",
 )
 ```
-
-<Callout type="info">
-Use `version=2` for SNMPv2c (default). SNMPv3 with USM authentication is coming in v1.2.0.
-</Callout>
 
 ## Operations
 
@@ -90,8 +114,35 @@ from snmpkit.core import Value
 await mgr.set("1.3.6.1.2.1.1.5.0", Value.OctetString(b"new-hostname"))
 ```
 
+### Table
+
+```python
+table = await mgr.get_table("1.3.6.1.2.1.2.2.1", columns=[2, 8])
+for index, cols in table.items():
+    print(f"{index}: {cols}")
+```
+
+### Traps
+
+```python
+await mgr.send_trap("1.3.6.1.4.1.12345.0.1")
+await mgr.send_inform("1.3.6.1.4.1.12345.0.1")
+```
+
+### Concurrent Polling
+
+```python
+from snmpkit.manager import PollTarget, poll_many
+
+targets = [PollTarget(host="10.0.0.1"), PollTarget(host="10.0.0.2")]
+async for result in poll_many(targets, ["1.3.6.1.2.1.1.1.0"]):
+    print(f"{result.target}: {result.value}")
+```
+
 ## Next Steps
 
 - [Quickstart](/docs/manager/quickstart) — Query your first device
 - [Operations](/docs/manager/operations) — Detailed API reference
-- [Performance](/docs/manager/performance) — Benchmark methodology
+- [SNMPv3](/docs/manager/snmpv3) — Authentication and encryption
+- [Traps](/docs/manager/traps) — Send and receive notifications
+- [Tables](/docs/manager/tables) — Structured table queries

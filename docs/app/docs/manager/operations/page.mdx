@@ -12,12 +12,19 @@ Complete API reference for Manager operations.
 from snmpkit.manager import Manager
 
 mgr = Manager(
-    host: str,
-    port: int = 161,
-    community: str = "public",
-    version: int = 2,
-    timeout: float = 5.0,
-    retries: int = 3,
+    host="192.168.1.1",
+    port=161,
+    community="public",
+    version=2,
+    timeout=5.0,
+    retries=3,
+    # SNMPv3 USM (optional)
+    user="admin",
+    auth_protocol="SHA256",
+    auth_password="auth_pass",
+    priv_protocol="AES",
+    priv_password="priv_pass",
+    context_name="",
 )
 ```
 
@@ -29,6 +36,12 @@ mgr = Manager(
 | `version` | int | 2 | SNMP version: 1, 2 (v2c), or 3 |
 | `timeout` | float | 5.0 | Request timeout in seconds |
 | `retries` | int | 3 | Number of retries on timeout |
+| `user` | str | None | SNMPv3 username |
+| `auth_protocol` | str | None | Auth protocol: "MD5", "SHA", "SHA224", "SHA256", "SHA384", "SHA512" |
+| `auth_password` | str | None | Auth password |
+| `priv_protocol` | str | None | Privacy protocol: "DES", "AES" |
+| `priv_password` | str | None | Privacy password |
+| `context_name` | str | "" | SNMPv3 context name |
 
 ### Context Manager
 
@@ -193,11 +206,107 @@ await mgr.set("1.3.6.1.2.1.1.6.0", Value.OctetString(b"Server Room"))
 | `Value.Integer(n)` | `Value.Integer(42)` |
 | `Value.OctetString(b)` | `Value.OctetString(b"hello")` |
 | `Value.ObjectIdentifier(oid)` | `Value.ObjectIdentifier(Oid("1.3.6.1"))` |
-| `Value.IpAddress(s)` | `Value.IpAddress("192.168.1.1")` |
+| `Value.IpAddress(a, b, c, d)` | `Value.IpAddress(192, 168, 1, 1)` |
 | `Value.Counter32(n)` | `Value.Counter32(1000)` |
 | `Value.Gauge32(n)` | `Value.Gauge32(50)` |
 | `Value.TimeTicks(n)` | `Value.TimeTicks(12345)` |
 | `Value.Counter64(n)` | `Value.Counter64(1000000)` |
+
+## Table Operations
+
+### get_table
+
+Retrieve a structured SNMP table.
+
+```python
+async def get_table(
+    self,
+    base_oid: str,
+    columns: list[int] | None = None,
+    bulk_size: int = 25,
+) -> dict[tuple[int, ...], dict[int, Value]]
+```
+
+```python
+table = await mgr.get_table("1.3.6.1.2.1.2.2.1", columns=[2, 8])
+
+for index, cols in table.items():
+    print(f"Row {index}: {cols}")
+```
+
+See [Tables](/docs/manager/tables) for detailed usage.
+
+## Trap/Inform Operations
+
+### send_trap
+
+Send an SNMPv2c/v3 Trap (fire-and-forget).
+
+```python
+async def send_trap(
+    self,
+    trap_oid: str,
+    varbinds: list[tuple[str, Value]] | None = None,
+    uptime: int | None = None,
+) -> None
+```
+
+```python
+await mgr.send_trap(
+    trap_oid="1.3.6.1.4.1.12345.0.1",
+    varbinds=[("1.3.6.1.4.1.12345.1.1.0", Value.Integer(95))],
+    uptime=123456,
+)
+```
+
+### send_inform
+
+Send an SNMPv2c/v3 Inform and wait for acknowledgement.
+
+```python
+async def send_inform(
+    self,
+    trap_oid: str,
+    varbinds: list[tuple[str, Value]] | None = None,
+    uptime: int | None = None,
+) -> None
+```
+
+```python
+await mgr.send_inform(
+    trap_oid="1.3.6.1.4.1.12345.0.1",
+    varbinds=[("1.3.6.1.4.1.12345.1.1.0", Value.Integer(95))],
+)
+```
+
+See [Traps](/docs/manager/traps) for detailed usage.
+
+## Concurrent Polling
+
+### poll_many
+
+Poll multiple targets concurrently:
+
+```python
+from snmpkit.manager import PollTarget, poll_many
+
+targets = [
+    PollTarget(host="10.0.0.1"),
+    PollTarget(host="10.0.0.2", community="private"),
+    PollTarget(host="10.0.0.3", version=3, user="admin",
+               auth_protocol="SHA256", auth_password="pass"),
+]
+
+oids = ["1.3.6.1.2.1.1.1.0", "1.3.6.1.2.1.1.3.0"]
+
+async for result in poll_many(targets, oids, concurrency=50):
+    if result.error:
+        print(f"{result.target}: ERROR {result.error}")
+    else:
+        print(f"{result.target}: {result.oid} = {result.value}")
+```
+
+See `PollTarget` and `PollResult` in [Advanced](/docs/manager/advanced).
 
 ## Exceptions
 

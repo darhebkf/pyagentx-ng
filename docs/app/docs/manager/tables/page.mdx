@@ -17,9 +17,72 @@ ifType.2 = ethernetCsmacd(6)
 ifType.3 = ethernetCsmacd(6)
 ```
 
-## Basic Table Walk
+## get_table
 
-### Walking a Single Column
+Retrieve an entire table as a structured dict:
+
+```python
+from snmpkit.manager import Manager
+
+async with Manager("192.168.1.1") as mgr:
+    # Walk ifTable entry OID
+    table = await mgr.get_table("1.3.6.1.2.1.2.2.1")
+
+    for index, columns in table.items():
+        print(f"Row {index}: {columns}")
+```
+
+Output:
+```python
+{
+    (1,): {2: Value.OctetString(b"lo"), 3: Value.Integer(24), 8: Value.Integer(1)},
+    (2,): {2: Value.OctetString(b"eth0"), 3: Value.Integer(6), 8: Value.Integer(1)},
+    (3,): {2: Value.OctetString(b"eth1"), 3: Value.Integer(6), 8: Value.Integer(2)},
+}
+```
+
+The return type is `dict[tuple[int, ...], dict[int, Value]]` where:
+- Keys are index tuples (e.g., `(1,)` for single-index, `(192, 168, 1, 1)` for IP-indexed tables)
+- Values are dicts mapping column number to Value
+
+### Column Filtering
+
+Only retrieve specific columns:
+
+```python
+# Only ifDescr (2) and ifOperStatus (8)
+table = await mgr.get_table(
+    "1.3.6.1.2.1.2.2.1",
+    columns=[2, 8],
+)
+
+for index, cols in table.items():
+    name = str(cols.get(2, ""))
+    status = str(cols.get(8, ""))
+    print(f"Interface {index}: {name} - {'up' if status == '1' else 'down'}")
+```
+
+### Bulk Size Tuning
+
+Adjust `bulk_size` based on table width and network conditions:
+
+```python
+# Large tables: bigger batches, fewer round-trips
+table = await mgr.get_table("1.3.6.1.2.1.2.2.1", bulk_size=50)
+
+# Slow devices: smaller batches
+table = await mgr.get_table("1.3.6.1.2.1.2.2.1", bulk_size=10)
+```
+
+<Callout type="info">
+Default `bulk_size` is 25. Most devices support 25-50. Some older devices may only support 10.
+</Callout>
+
+## Manual Table Walk
+
+For more control, walk columns individually:
+
+### Single Column
 
 ```python
 async with Manager("192.168.1.1") as mgr:
@@ -28,7 +91,7 @@ async with Manager("192.168.1.1") as mgr:
         print(f"Interface {idx}: {value}")
 ```
 
-### Walking Multiple Columns
+### Multiple Columns
 
 ```python
 async def get_interface_table(mgr: Manager) -> dict[str, dict]:
@@ -38,8 +101,6 @@ async def get_interface_table(mgr: Manager) -> dict[str, dict]:
     columns = {
         "ifDescr": "2",
         "ifType": "3",
-        "ifMtu": "4",
-        "ifSpeed": "5",
         "ifOperStatus": "8",
     }
 
@@ -53,315 +114,98 @@ async def get_interface_table(mgr: Manager) -> dict[str, dict]:
     return table
 ```
 
-## Table Helper
-
-### get_table
-
-Retrieve an entire table efficiently:
-
-```python
-from snmpkit.manager import Manager
-
-async with Manager("192.168.1.1") as mgr:
-    table = await mgr.get_table(
-        "1.3.6.1.2.1.2.2",  # ifTable
-        columns=["1.2", "1.3", "1.8"],  # ifDescr, ifType, ifOperStatus
-    )
-
-    for idx, row in table.items():
-        print(f"{idx}: {row}")
-```
-
-Output:
-```python
-{
-    "1": {"1.2": "lo", "1.3": 24, "1.8": 1},
-    "2": {"1.2": "eth0", "1.3": 6, "1.8": 1},
-    "3": {"1.2": "eth1", "1.3": 6, "1.8": 2},
-}
-```
-
-### Column Aliases
-
-```python
-table = await mgr.get_table(
-    "1.3.6.1.2.1.2.2",
-    columns={
-        "name": "1.2",      # ifDescr
-        "type": "1.3",      # ifType
-        "status": "1.8",    # ifOperStatus
-    },
-)
-
-for idx, row in table.items():
-    print(f"{row['name']}: {'up' if row['status'] == 1 else 'down'}")
-```
-
-### With MIB Registry
-
-```python
-from snmpkit.mibs import MibRegistry
-
-registry = MibRegistry()
-
-async with Manager("192.168.1.1", mib_registry=registry) as mgr:
-    table = await mgr.get_table(
-        "IF-MIB::ifTable",
-        columns=["ifDescr", "ifType", "ifOperStatus"],
-    )
-
-    for idx, row in table.items():
-        print(f"{row['ifDescr']}: {row['ifOperStatus']}")
-```
-
-## Sparse Tables
-
-Some tables have missing values (sparse tables). Handle them gracefully:
-
-```python
-table = await mgr.get_table(
-    "1.3.6.1.2.1.4.22",  # ipNetToMediaTable (ARP table)
-    columns=["1.2", "1.3", "1.4"],
-    default=None,  # Return None for missing values
-)
-
-for idx, row in table.items():
-    mac = row.get("1.2") or "unknown"
-    ip = row.get("1.3") or "unknown"
-    print(f"{ip} -> {mac}")
-```
-
 ## Compound Indices
 
-Some tables have multi-part indices:
+Some tables have multi-part indices. `get_table` handles this automatically — the index tuple will have multiple elements:
 
 ### IP Route Table
 
 ```python
-# ipRouteTable is indexed by ipRouteDest (4 octets)
-async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.4.21.1.1"):
-    # OID: 1.3.6.1.2.1.4.21.1.1.10.0.0.0
-    parts = oid.split(".")
-    dest = ".".join(parts[-4:])  # Last 4 parts are the IP
-    print(f"Route to {dest}: {value}")
+# ipRouteTable is indexed by destination IP (4 octets)
+table = await mgr.get_table("1.3.6.1.2.1.4.21.1")
+
+for index, cols in table.items():
+    # index is a tuple like (10, 0, 0, 0)
+    dest = ".".join(str(i) for i in index)
+    print(f"Route to {dest}")
 ```
 
 ### TCP Connection Table
 
 ```python
-# tcpConnTable is indexed by (localAddr, localPort, remoteAddr, remotePort)
-async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.6.13.1.1"):
-    parts = oid.split(".")
-    local_addr = ".".join(parts[-10:-6])
-    local_port = parts[-6]
-    remote_addr = ".".join(parts[-5:-1])
-    remote_port = parts[-1]
-    print(f"{local_addr}:{local_port} -> {remote_addr}:{remote_port}: {value}")
+# tcpConnTable indexed by (localAddr x4, localPort, remoteAddr x4, remotePort)
+table = await mgr.get_table("1.3.6.1.2.1.6.13.1")
+
+for index, cols in table.items():
+    local_addr = ".".join(str(i) for i in index[:4])
+    local_port = index[4]
+    remote_addr = ".".join(str(i) for i in index[5:9])
+    remote_port = index[9]
+    print(f"{local_addr}:{local_port} -> {remote_addr}:{remote_port}")
 ```
-
-### Index Parsing Helper
-
-```python
-from snmpkit.manager import parse_table_index
-
-# Define index structure
-index_def = [
-    ("ifIndex", 1),       # Single integer
-    ("ipAddress", 4),     # 4 octets for IP
-]
-
-async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.4.20.1.1"):
-    indices = parse_table_index(oid, "1.3.6.1.2.1.4.20.1.1", index_def)
-    print(f"Interface {indices['ifIndex']}, IP {indices['ipAddress']}: {value}")
-```
-
-## Efficient Table Retrieval
-
-### Parallel Column Fetching
-
-Fetch multiple columns concurrently:
-
-```python
-import asyncio
-
-async def get_interface_table_fast(mgr: Manager) -> dict:
-    base = "1.3.6.1.2.1.2.2.1"
-    columns = ["2", "3", "8", "10", "16"]  # descr, type, status, inOctets, outOctets
-
-    async def fetch_column(col_id):
-        result = []
-        async for oid, value in mgr.bulk_walk(f"{base}.{col_id}"):
-            idx = oid.split(".")[-1]
-            result.append((idx, col_id, value))
-        return result
-
-    results = await asyncio.gather(*[fetch_column(c) for c in columns])
-
-    table = {}
-    for column_results in results:
-        for idx, col_id, value in column_results:
-            if idx not in table:
-                table[idx] = {}
-            table[idx][col_id] = value
-
-    return table
-```
-
-### Bulk Size Tuning
-
-Adjust `bulk_size` based on table width and network conditions:
-
-```python
-# Wide tables with many columns - smaller bulk_size
-async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.2.2.1.2", bulk_size=10):
-    pass
-
-# Narrow tables (single column) - larger bulk_size
-async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.2.2.1.2", bulk_size=50):
-    pass
-```
-
-<Callout type="info">
-Larger `bulk_size` means fewer round-trips but larger packets. Most devices support 25-50. Some older devices may only support 10.
-</Callout>
 
 ## Common Tables
 
 ### IF-MIB::ifTable
 
 ```python
-IF_TABLE = "1.3.6.1.2.1.2.2"
-IF_COLUMNS = {
-    "ifIndex": "1.1",
-    "ifDescr": "1.2",
-    "ifType": "1.3",
-    "ifMtu": "1.4",
-    "ifSpeed": "1.5",
-    "ifPhysAddress": "1.6",
-    "ifAdminStatus": "1.7",
-    "ifOperStatus": "1.8",
-    "ifLastChange": "1.9",
-    "ifInOctets": "1.10",
-    "ifInUcastPkts": "1.11",
-    "ifInDiscards": "1.13",
-    "ifInErrors": "1.14",
-    "ifOutOctets": "1.16",
-    "ifOutUcastPkts": "1.17",
-    "ifOutDiscards": "1.19",
-    "ifOutErrors": "1.20",
-}
+IF_TABLE_ENTRY = "1.3.6.1.2.1.2.2.1"
+
+# Column numbers
+IF_INDEX = 1
+IF_DESCR = 2
+IF_TYPE = 3
+IF_MTU = 4
+IF_SPEED = 5
+IF_PHYS_ADDRESS = 6
+IF_ADMIN_STATUS = 7
+IF_OPER_STATUS = 8
+IF_IN_OCTETS = 10
+IF_IN_ERRORS = 14
+IF_OUT_OCTETS = 16
+IF_OUT_ERRORS = 20
 ```
 
 ### IF-MIB::ifXTable (64-bit counters)
 
 ```python
-IFX_TABLE = "1.3.6.1.2.1.31.1.1"
-IFX_COLUMNS = {
-    "ifName": "1.1",
-    "ifHCInOctets": "1.6",
-    "ifHCInUcastPkts": "1.7",
-    "ifHCOutOctets": "1.10",
-    "ifHCOutUcastPkts": "1.11",
-    "ifHighSpeed": "1.15",
-    "ifAlias": "1.18",
-}
-```
+IFX_TABLE_ENTRY = "1.3.6.1.2.1.31.1.1.1"
 
-### IP-MIB::ipNetToMediaTable (ARP)
-
-```python
-ARP_TABLE = "1.3.6.1.2.1.4.22"
-ARP_COLUMNS = {
-    "ipNetToMediaIfIndex": "1.1",
-    "ipNetToMediaPhysAddress": "1.2",
-    "ipNetToMediaNetAddress": "1.3",
-    "ipNetToMediaType": "1.4",
-}
-```
-
-### ENTITY-MIB::entPhysicalTable
-
-```python
-ENTITY_TABLE = "1.3.6.1.2.1.47.1.1.1"
-ENTITY_COLUMNS = {
-    "entPhysicalDescr": "1.2",
-    "entPhysicalVendorType": "1.3",
-    "entPhysicalContainedIn": "1.4",
-    "entPhysicalClass": "1.5",
-    "entPhysicalName": "1.7",
-    "entPhysicalSerialNum": "1.11",
-    "entPhysicalMfgName": "1.12",
-    "entPhysicalModelName": "1.13",
-}
+IF_NAME = 1
+IF_HC_IN_OCTETS = 6
+IF_HC_OUT_OCTETS = 10
+IF_HIGH_SPEED = 15
+IF_ALIAS = 18
 ```
 
 ## Example: Interface Report
 
 ```python
 import asyncio
-from dataclasses import dataclass
 from snmpkit.manager import Manager
 
-@dataclass
-class Interface:
-    index: int
-    name: str
-    type: int
-    speed: int
-    status: str
-    in_octets: int
-    out_octets: int
-    in_errors: int
-    out_errors: int
-
-async def get_interfaces(host: str) -> list[Interface]:
-    async with Manager(host) as mgr:
+async def main():
+    async with Manager("192.168.1.1") as mgr:
         table = await mgr.get_table(
-            "1.3.6.1.2.1.2.2",
-            columns={
-                "name": "1.2",
-                "type": "1.3",
-                "speed": "1.5",
-                "status": "1.8",
-                "in_oct": "1.10",
-                "out_oct": "1.16",
-                "in_err": "1.14",
-                "out_err": "1.20",
-            },
+            "1.3.6.1.2.1.2.2.1",
+            columns=[2, 3, 5, 8, 10, 16],
         )
 
-        interfaces = []
-        for idx, row in table.items():
-            interfaces.append(Interface(
-                index=int(idx),
-                name=str(row["name"]),
-                type=int(row["type"]),
-                speed=int(row["speed"]),
-                status="up" if row["status"] == 1 else "down",
-                in_octets=int(row["in_oct"]),
-                out_octets=int(row["out_oct"]),
-                in_errors=int(row["in_err"]),
-                out_errors=int(row["out_err"]),
-            ))
+        print(f"{'Name':<15} {'Status':<8} {'Speed':<12} {'In (MB)':<12} {'Out (MB)':<12}")
+        print("-" * 60)
 
-        return sorted(interfaces, key=lambda i: i.index)
-
-async def main():
-    interfaces = await get_interfaces("192.168.1.1")
-
-    print(f"{'Name':<15} {'Status':<8} {'Speed':<12} {'In (MB)':<12} {'Out (MB)':<12}")
-    print("-" * 60)
-
-    for iface in interfaces:
-        speed_mbps = iface.speed // 1_000_000
-        in_mb = iface.in_octets / 1024 / 1024
-        out_mb = iface.out_octets / 1024 / 1024
-        print(f"{iface.name:<15} {iface.status:<8} {speed_mbps:<12} {in_mb:<12.1f} {out_mb:<12.1f}")
+        for idx, row in sorted(table.items()):
+            name = str(row.get(2, ""))
+            status = "up" if str(row.get(8, "")) == "1" else "down"
+            speed = int(str(row.get(5, "0"))) // 1_000_000
+            in_mb = int(str(row.get(10, "0"))) / 1024 / 1024
+            out_mb = int(str(row.get(16, "0"))) / 1024 / 1024
+            print(f"{name:<15} {status:<8} {speed:<12} {in_mb:<12.1f} {out_mb:<12.1f}")
 
 asyncio.run(main())
 ```
 
 ## Next Steps
 
-- [MIB Support](/docs/manager/mibs) — Symbolic table names
-- [Performance](/docs/manager/performance) — Optimize table queries
+- [Operations](/docs/manager/operations) — Full API reference
+- [Traps](/docs/manager/traps) — Trap and notification handling

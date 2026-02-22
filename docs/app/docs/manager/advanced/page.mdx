@@ -2,116 +2,7 @@ import { Tabs, Callout } from 'nextra/components'
 
 # Advanced
 
-Performance tuning and advanced configuration.
-
-## Manager Configuration
-
-### Full Constructor
-
-```python
-from snmpkit.manager import Manager
-
-mgr = Manager(
-    host="192.168.1.1",
-    port=161,
-    community="public",
-    version=2,
-    timeout=5.0,
-    retries=3,
-    max_message_size=65535,
-    engine_id=None,
-    context_name="",
-)
-```
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `host` | required | Target hostname or IP |
-| `port` | 161 | SNMP port |
-| `community` | "public" | Community string (v1/v2c) |
-| `version` | 2 | SNMP version (1, 2, 3) |
-| `timeout` | 5.0 | Request timeout seconds |
-| `retries` | 3 | Retry count on timeout |
-| `max_message_size` | 65535 | Maximum PDU size |
-| `context_name` | "" | Default SNMP context |
-
-## Timeout Strategies
-
-### Exponential Backoff
-
-```python
-from snmpkit.manager import Manager, TimeoutStrategy
-
-mgr = Manager(
-    "192.168.1.1",
-    timeout=1.0,
-    retries=5,
-    timeout_strategy=TimeoutStrategy.EXPONENTIAL,
-    backoff_factor=2.0,
-)
-# Timeouts: 1s, 2s, 4s, 8s, 16s
-```
-
-### Linear Backoff
-
-```python
-mgr = Manager(
-    "192.168.1.1",
-    timeout=2.0,
-    retries=5,
-    timeout_strategy=TimeoutStrategy.LINEAR,
-    backoff_increment=1.0,
-)
-# Timeouts: 2s, 3s, 4s, 5s, 6s
-```
-
-### Fixed Timeout
-
-```python
-mgr = Manager(
-    "192.168.1.1",
-    timeout=5.0,
-    retries=3,
-    timeout_strategy=TimeoutStrategy.FIXED,
-)
-# Timeouts: 5s, 5s, 5s
-```
-
-## Connection Pooling
-
-### Shared Manager Pool
-
-```python
-from snmpkit.manager import ManagerPool
-
-pool = ManagerPool(
-    max_connections=100,
-    connection_timeout=30.0,
-    idle_timeout=300.0,
-)
-
-async def poll_device(host: str):
-    async with pool.get(host, community="public") as mgr:
-        return await mgr.get("1.3.6.1.2.1.1.1.0")
-
-# Poll many devices efficiently
-results = await asyncio.gather(*[poll_device(h) for h in hosts])
-
-# Clean up
-await pool.close()
-```
-
-### Per-Host Connection Reuse
-
-```python
-from snmpkit.manager import Manager
-
-# Single manager, multiple requests
-async with Manager("192.168.1.1") as mgr:
-    # Connection is reused
-    for oid in oids:
-        value = await mgr.get(oid)
-```
+Performance tuning and advanced patterns.
 
 ## Bulk Operation Tuning
 
@@ -137,90 +28,82 @@ async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.2.2", bulk_size=50):
 # Small tables or slow devices: smaller batches
 async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.2.2", bulk_size=10):
     pass
-
-# Very large tables: use iterator with progress
-count = 0
-async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.4.22", bulk_size=100):
-    count += 1
-    if count % 1000 == 0:
-        print(f"Processed {count} entries...")
 ```
 
 <Callout type="info">
 Optimal `bulk_size` depends on the device. Most support 25-50. Some older devices may only support 10. MTU limits apply (~1400 bytes of OID data per packet).
 </Callout>
 
-## Request Pipelining
+## Concurrent Polling
 
-Send multiple requests without waiting for responses:
+### poll_many
+
+Poll multiple targets concurrently with bounded concurrency:
 
 ```python
-from snmpkit.manager import Manager
+from snmpkit.manager import PollTarget, PollResult, poll_many
 
-async with Manager("192.168.1.1") as mgr:
-    # Create pending requests
-    pending = []
-    for oid in oids:
-        pending.append(mgr.get_async(oid))
+targets = [
+    PollTarget(host="10.0.0.1"),
+    PollTarget(host="10.0.0.2", community="private"),
+    PollTarget(host="10.0.0.3", port=1161, timeout=10.0),
+]
 
-    # Wait for all responses
-    results = await asyncio.gather(*pending)
+oids = ["1.3.6.1.2.1.1.1.0", "1.3.6.1.2.1.1.3.0"]
+
+async for result in poll_many(targets, oids, concurrency=50):
+    if result.error:
+        print(f"{result.target}: {result.error}")
+    else:
+        print(f"{result.target}: {result.oid} = {result.value}")
 ```
 
-## Message Size Limits
-
-### Large Response Handling
+### PollTarget
 
 ```python
-mgr = Manager(
-    "192.168.1.1",
-    max_message_size=65535,  # Maximum UDP size
-)
-
-# For very large responses, use smaller bulk_size
-async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.2.2", bulk_size=10):
-    pass
+@dataclass
+class PollTarget:
+    host: str
+    port: int = 161
+    community: str = "public"
+    version: int = 2
+    # v3 fields
+    user: str | None = None
+    auth_protocol: str | None = None
+    auth_password: str | None = None
+    priv_protocol: str | None = None
+    priv_password: str | None = None
+    timeout: float = 5.0
+    retries: int = 3
 ```
 
-### TooBig Error Recovery
+### PollResult
 
 ```python
-from snmpkit.manager.exceptions import TooBigError
-
-try:
-    results = await mgr.get_bulk("1.3.6.1.2.1.2.2.1.1", max_repetitions=100)
-except TooBigError:
-    # Retry with smaller batch
-    results = await mgr.get_bulk("1.3.6.1.2.1.2.2.1.1", max_repetitions=25)
+@dataclass
+class PollResult:
+    target: str           # "host:port"
+    oid: str              # OID that was queried
+    value: Value | None   # Value if successful
+    error: str | None     # Error message if failed
 ```
 
-## Engine Configuration
+Errors on one target don't affect others — each target is isolated.
 
-### SNMPv3 Engine Settings
+### Manual Concurrent Polling
 
-```python
-from snmpkit.manager import Manager, EngineConfig
-
-engine = EngineConfig(
-    engine_id=bytes.fromhex("80001234..."),
-    engine_boots=0,
-    engine_time=0,
-    max_message_size=65535,
-)
-
-mgr = Manager("192.168.1.1", version=3, engine=engine)
-```
-
-### Engine Discovery
+For more control, use `asyncio.gather` directly:
 
 ```python
-async with Manager("192.168.1.1", version=3, user=user) as mgr:
-    # Discovery happens automatically on connect
-    await mgr.connect()
+async def poll_devices(hosts: list[str], max_concurrent: int = 50):
+    semaphore = asyncio.Semaphore(max_concurrent)
 
-    print(f"Remote Engine ID: {mgr.remote_engine_id.hex()}")
-    print(f"Remote Engine Boots: {mgr.remote_engine_boots}")
-    print(f"Remote Engine Time: {mgr.remote_engine_time}")
+    async def poll_one(host: str):
+        async with semaphore:
+            async with Manager(host, timeout=2.0) as mgr:
+                return await mgr.get("1.3.6.1.2.1.1.1.0")
+
+    return await asyncio.gather(*[poll_one(h) for h in hosts], return_exceptions=True)
 ```
 
 ## Logging
@@ -234,24 +117,19 @@ logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("snmpkit").setLevel(logging.DEBUG)
 ```
 
+Loggers used:
+- `snmpkit.manager` — Manager operations, connection events
+- `snmpkit.trap_receiver` — TrapReceiver events, Inform ACKs
+- `snmpkit.poll` — poll_many progress
+
 ### Log Levels
 
 | Level | Information |
 |-------|-------------|
-| DEBUG | PDU encode/decode, timing |
-| INFO | Connection events |
+| DEBUG | PDU encode/decode, timing, Inform ACKs |
+| INFO | Connection events, TrapReceiver start/stop |
 | WARNING | Retries, recoverable errors |
-| ERROR | Failed requests |
-
-### Custom Logger
-
-```python
-import logging
-
-logger = logging.getLogger("myapp.snmp")
-
-mgr = Manager("192.168.1.1", logger=logger)
-```
+| ERROR | Failed requests, UDP errors |
 
 ## Async Patterns
 
@@ -283,20 +161,6 @@ async def main():
         await mgr.close()
 ```
 
-### Concurrent Device Polling
-
-```python
-async def poll_devices(hosts: list[str], max_concurrent: int = 50):
-    semaphore = asyncio.Semaphore(max_concurrent)
-
-    async def poll_one(host: str):
-        async with semaphore:
-            async with Manager(host, timeout=2.0) as mgr:
-                return await mgr.get("1.3.6.1.2.1.1.1.0")
-
-    return await asyncio.gather(*[poll_one(h) for h in hosts], return_exceptions=True)
-```
-
 ### Streaming Results
 
 ```python
@@ -325,16 +189,6 @@ async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.4.22"):
     await write_to_database(oid, value)
 ```
 
-### Lazy Value Decoding
-
-```python
-# Values are decoded on access, not on receive
-async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.2.2"):
-    if should_process(oid):
-        # Decode only when needed
-        decoded = str(value)
-```
-
 ## Thread Safety
 
 Manager instances are not thread-safe. Use one per task:
@@ -342,9 +196,6 @@ Manager instances are not thread-safe. Use one per task:
 ```python
 # Bad: shared manager across threads
 mgr = Manager("192.168.1.1")
-
-def worker():
-    asyncio.run(mgr.get(...))  # Not safe!
 
 # Good: create manager in each task
 async def worker(host: str):
@@ -358,10 +209,10 @@ async def worker(host: str):
 |----------|---------------|
 | Single device, few OIDs | Default settings |
 | Single device, large table | `bulk_size=50` |
-| Many devices (100-1000) | Connection pool, `max_concurrent=50` |
-| Many devices (1000+) | Connection pool, rate limiting |
+| Many devices (100-1000) | `poll_many()` with `concurrency=50` |
+| Many devices (1000+) | `poll_many()` with rate limiting |
 | Slow network | Increase timeout, reduce bulk_size |
-| Unreliable network | Increase retries, exponential backoff |
+| Unreliable network | Increase retries |
 
 ## Next Steps
 

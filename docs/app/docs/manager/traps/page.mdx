@@ -2,7 +2,7 @@ import { Tabs, Callout } from 'nextra/components'
 
 # Traps & Notifications
 
-Receive and send SNMP traps and notifications.
+Send and receive SNMP traps and notifications.
 
 ## Overview
 
@@ -14,28 +14,89 @@ SNMP devices send unsolicited messages to report events:
 | Trap (v2c/v3) | SNMPv2c, SNMPv3 | No |
 | Inform | SNMPv2c, SNMPv3 | Yes (acknowledged) |
 
+## Sending Traps
+
+Use the Manager to send traps and informs.
+
+### Send Trap (Fire-and-Forget)
+
+```python
+import asyncio
+from snmpkit.core import Value
+from snmpkit.manager import Manager
+
+async def main():
+    async with Manager("192.168.1.100", port=162, community="public") as mgr:
+        await mgr.send_trap(
+            trap_oid="1.3.6.1.4.1.12345.0.1",
+            varbinds=[
+                ("1.3.6.1.4.1.12345.1.1.0", Value.Integer(95)),
+                ("1.3.6.1.4.1.12345.1.2.0", Value.OctetString(b"CPU High")),
+            ],
+            uptime=123456,
+        )
+
+asyncio.run(main())
+```
+
+Traps are fire-and-forget — no response is expected. The `sysUpTime.0` and `snmpTrapOID.0` varbinds are added automatically.
+
+### Send Inform (Acknowledged)
+
+```python
+async with Manager("192.168.1.100", port=162) as mgr:
+    await mgr.send_inform(
+        trap_oid="1.3.6.1.4.1.12345.0.1",
+        varbinds=[
+            ("1.3.6.1.4.1.12345.1.1.0", Value.Integer(95)),
+        ],
+    )
+    print("Inform acknowledged by receiver")
+```
+
+<Callout type="info">
+Inform requests wait for an acknowledgement Response PDU. Use traps when acknowledgment isn't needed.
+</Callout>
+
+### SNMPv3 Traps
+
+```python
+async with Manager(
+    "192.168.1.100",
+    port=162,
+    version=3,
+    user="trapuser",
+    auth_protocol="SHA256",
+    auth_password="auth_password_here",
+    priv_protocol="AES",
+    priv_password="priv_password_here",
+) as mgr:
+    await mgr.send_trap(
+        trap_oid="1.3.6.1.4.1.12345.0.1",
+        varbinds=[("1.3.6.1.4.1.12345.1.1.0", Value.Integer(42))],
+    )
+```
+
 ## Receiving Traps
 
-### Basic Trap Receiver
+### TrapReceiver
+
+Listen for incoming traps with the async iterator pattern:
 
 ```python
 import asyncio
 from snmpkit.manager import TrapReceiver
 
-async def handle_trap(trap):
-    print(f"Trap from {trap.source}")
-    print(f"  Type: {trap.trap_oid}")
-    print(f"  Uptime: {trap.uptime}")
-
-    for varbind in trap.varbinds:
-        print(f"  {varbind.oid} = {varbind.value}")
-
 async def main():
-    receiver = TrapReceiver(port=162)
-    receiver.on_trap(handle_trap)
+    async with TrapReceiver(port=1162) as receiver:
+        async for trap in receiver:
+            print(f"Trap from {trap.source}")
+            print(f"  OID: {trap.trap_oid}")
+            print(f"  Uptime: {trap.uptime}")
+            print(f"  Community: {trap.community}")
 
-    print("Listening for traps on UDP port 162...")
-    await receiver.start()
+            for oid, value in trap.varbinds:
+                print(f"  {oid} = {value}")
 
 asyncio.run(main())
 ```
@@ -44,185 +105,41 @@ asyncio.run(main())
 Port 162 requires root/administrator privileges. Use a higher port (e.g., 1162) for testing.
 </Callout>
 
-### Trap Object
+### TrapMessage
+
+Each received trap is a `TrapMessage` dataclass:
 
 ```python
 @dataclass
-class Trap:
-    source: tuple[str, int]    # (ip, port)
-    version: int               # 1, 2, or 3
-    community: str | None      # v1/v2c community
-    user: str | None           # v3 username
-    trap_oid: str              # Trap type OID
-    enterprise: str | None     # v1 enterprise OID
-    uptime: int                # sysUpTime value
-    varbinds: list[VarBind]    # Variable bindings
-    context: str | None        # v3 context
+class TrapMessage:
+    source: tuple[str, int]              # (ip, port)
+    version: int                         # 1 or 3
+    community: str                       # v2c community string
+    pdu_type: int                        # 0xA7 (Trap) or 0xA6 (Inform)
+    request_id: int                      # PDU request ID
+    trap_oid: str                        # snmpTrapOID.0 value
+    uptime: int                          # sysUpTime.0 value
+    varbinds: list[tuple[str, Value]]    # User varbinds (without sysUpTime/snmpTrapOID)
+    raw_varbinds: list[tuple[str, Value]]  # All varbinds including standard ones
 ```
 
-### Filtering Traps
+### Automatic Inform ACK
+
+InformRequest PDUs are automatically acknowledged with a Response PDU. You don't need to handle this — the receiver sends the ACK and delivers the message to your iterator like any other trap.
+
+### Manual Start/Stop
 
 ```python
-from snmpkit.manager import TrapReceiver, TrapFilter
+receiver = TrapReceiver(host="0.0.0.0", port=1162)
+await receiver.start()
 
-# Filter by source
-receiver = TrapReceiver(
-    port=162,
-    filters=[
-        TrapFilter(source="192.168.1.0/24"),
-    ]
-)
+# Process traps...
+trap = await receiver.__anext__()
 
-# Filter by trap type
-receiver = TrapReceiver(
-    port=162,
-    filters=[
-        TrapFilter(trap_oid="1.3.6.1.6.3.1.1.5.3"),  # linkDown
-        TrapFilter(trap_oid="1.3.6.1.6.3.1.1.5.4"),  # linkUp
-    ]
-)
-
-# Filter by community
-receiver = TrapReceiver(
-    port=162,
-    filters=[
-        TrapFilter(community="monitoring"),
-    ]
-)
-```
-
-### Multiple Handlers
-
-```python
-async def log_trap(trap):
-    print(f"[LOG] {trap.source}: {trap.trap_oid}")
-
-async def alert_on_critical(trap):
-    critical_oids = [
-        "1.3.6.1.6.3.1.1.5.3",  # linkDown
-        "1.3.6.1.4.1.9.9.13.3.0.1",  # ciscoEnvMonFan
-    ]
-    if trap.trap_oid in critical_oids:
-        await send_alert(trap)
-
-receiver = TrapReceiver(port=162)
-receiver.on_trap(log_trap)
-receiver.on_trap(alert_on_critical)
-```
-
-## SNMPv3 Traps
-
-### Configuring v3 Security
-
-```python
-from snmpkit.manager import TrapReceiver, USMUser, AuthProtocol, PrivProtocol
-
-users = [
-    USMUser(
-        username="trapuser",
-        auth_protocol=AuthProtocol.SHA256,
-        auth_key="auth_password",
-        priv_protocol=PrivProtocol.AES128,
-        priv_key="priv_password",
-    ),
-]
-
-receiver = TrapReceiver(port=162, users=users)
-```
-
-### Engine ID Handling
-
-```python
-receiver = TrapReceiver(
-    port=162,
-    users=users,
-    # Accept traps from any engine ID
-    accept_unknown_engines=True,
-)
-```
-
-## Sending Traps
-
-### Send Trap (v2c)
-
-```python
-from snmpkit.manager import TrapSender
-from snmpkit.core import Oid, Value, VarBind
-
-async def main():
-    sender = TrapSender(
-        destination="192.168.1.100",
-        port=162,
-        community="public",
-    )
-
-    await sender.send_trap(
-        trap_oid="1.3.6.1.4.1.12345.0.1",
-        varbinds=[
-            VarBind(Oid("1.3.6.1.4.1.12345.1.1.0"), Value.Integer(95)),
-            VarBind(Oid("1.3.6.1.4.1.12345.1.2.0"), Value.OctetString(b"CPU High")),
-        ],
-    )
-
-asyncio.run(main())
-```
-
-### Send Inform (Acknowledged)
-
-```python
-from snmpkit.manager import TrapSender
-
-async def main():
-    sender = TrapSender(
-        destination="192.168.1.100",
-        port=162,
-        community="public",
-    )
-
-    try:
-        await sender.send_inform(
-            trap_oid="1.3.6.1.4.1.12345.0.1",
-            varbinds=[...],
-            timeout=5.0,
-        )
-        print("Inform acknowledged")
-    except TimeoutError:
-        print("No acknowledgment received")
-
-asyncio.run(main())
-```
-
-<Callout type="info">
-Inform requests wait for acknowledgment. Use traps when acknowledgment isn't needed.
-</Callout>
-
-### SNMPv3 Traps
-
-```python
-from snmpkit.manager import TrapSender, USMUser, AuthProtocol, PrivProtocol
-
-user = USMUser(
-    username="trapuser",
-    auth_protocol=AuthProtocol.SHA256,
-    auth_key="auth_password",
-    priv_protocol=PrivProtocol.AES128,
-    priv_key="priv_password",
-)
-
-sender = TrapSender(
-    destination="192.168.1.100",
-    port=162,
-    version=3,
-    user=user,
-    engine_id=bytes.fromhex("80001234..."),
-)
-
-await sender.send_trap(trap_oid="1.3.6.1.4.1.12345.0.1", varbinds=[...])
+await receiver.stop()
 ```
 
 ## Common Trap OIDs
-
-### Standard Traps
 
 | OID | Name | Description |
 |-----|------|-------------|
@@ -232,96 +149,22 @@ await sender.send_trap(trap_oid="1.3.6.1.4.1.12345.0.1", varbinds=[...])
 | `1.3.6.1.6.3.1.1.5.4` | linkUp | Interface came up |
 | `1.3.6.1.6.3.1.1.5.5` | authenticationFailure | Bad community/credentials |
 
-### Decoding Trap OIDs
-
-```python
-from snmpkit.mibs import MibRegistry
-
-registry = MibRegistry()
-
-async def handle_trap(trap):
-    trap_name = registry.lookup(trap.trap_oid)
-    print(f"Received: {trap_name}")
-
-    if trap.trap_oid == "1.3.6.1.6.3.1.1.5.3":  # linkDown
-        # Extract ifIndex from varbinds
-        for vb in trap.varbinds:
-            if "ifIndex" in registry.lookup(vb.oid):
-                print(f"Interface {vb.value} went down")
-```
-
 ## Example: Trap Logger
 
-<Tabs items={['SQLite', 'Prometheus', 'File']}>
+<Tabs items={['Console', 'File']}>
   <Tabs.Tab>
 ```python
 import asyncio
-import sqlite3
-import json
-from datetime import datetime
 from snmpkit.manager import TrapReceiver
 
-conn = sqlite3.connect("traps.db")
-conn.execute("""
-    CREATE TABLE IF NOT EXISTS traps (
-        id INTEGER PRIMARY KEY,
-        timestamp TEXT,
-        source TEXT,
-        trap_oid TEXT,
-        varbinds TEXT
-    )
-""")
-
-async def log_to_db(trap):
-    conn.execute(
-        "INSERT INTO traps (timestamp, source, trap_oid, varbinds) VALUES (?, ?, ?, ?)",
-        (
-            datetime.now().isoformat(),
-            f"{trap.source[0]}:{trap.source[1]}",
-            trap.trap_oid,
-            json.dumps([(str(vb.oid), str(vb.value)) for vb in trap.varbinds]),
-        ),
-    )
-    conn.commit()
-
 async def main():
-    receiver = TrapReceiver(port=1162)
-    receiver.on_trap(log_to_db)
-    await receiver.start()
-
-asyncio.run(main())
-```
-  </Tabs.Tab>
-  <Tabs.Tab>
-```python
-import asyncio
-from prometheus_client import Counter, start_http_server
-from snmpkit.manager import TrapReceiver
-
-trap_counter = Counter(
-    "snmp_traps_total",
-    "Total SNMP traps received",
-    ["source", "trap_type"],
-)
-
-TRAP_NAMES = {
-    "1.3.6.1.6.3.1.1.5.1": "coldStart",
-    "1.3.6.1.6.3.1.1.5.2": "warmStart",
-    "1.3.6.1.6.3.1.1.5.3": "linkDown",
-    "1.3.6.1.6.3.1.1.5.4": "linkUp",
-}
-
-async def count_trap(trap):
-    trap_name = TRAP_NAMES.get(trap.trap_oid, "other")
-    trap_counter.labels(source=trap.source[0], trap_type=trap_name).inc()
-
-async def main():
-    start_http_server(9117)
-    print("Prometheus metrics on :9117/metrics")
-
-    receiver = TrapReceiver(port=1162)
-    receiver.on_trap(count_trap)
-    await receiver.start()
+    async with TrapReceiver(port=1162) as receiver:
+        print("Listening for traps on port 1162...")
+        async for trap in receiver:
+            pdu = "Inform" if trap.pdu_type == 0xA6 else "Trap"
+            print(f"[{pdu}] {trap.source[0]} -> {trap.trap_oid}")
+            for oid, value in trap.varbinds:
+                print(f"  {oid} = {value}")
 
 asyncio.run(main())
 ```
@@ -332,63 +175,38 @@ import asyncio
 from datetime import datetime
 from snmpkit.manager import TrapReceiver
 
-async def log_to_file(trap):
-    timestamp = datetime.now().isoformat()
-    with open("traps.log", "a") as f:
-        f.write(f"{timestamp} {trap.source[0]} {trap.trap_oid}\n")
-        for vb in trap.varbinds:
-            f.write(f"  {vb.oid} = {vb.value}\n")
-        f.write("\n")
-
 async def main():
-    receiver = TrapReceiver(port=1162)
-    receiver.on_trap(log_to_file)
-    await receiver.start()
+    async with TrapReceiver(port=1162) as receiver:
+        with open("traps.log", "a") as f:
+            async for trap in receiver:
+                ts = datetime.now().isoformat()
+                f.write(f"{ts} {trap.source[0]} {trap.trap_oid}\n")
+                for oid, value in trap.varbinds:
+                    f.write(f"  {oid} = {value}\n")
+                f.write("\n")
+                f.flush()
 
 asyncio.run(main())
 ```
   </Tabs.Tab>
 </Tabs>
 
-## Example: Alert Forwarder
+## Example: Trap Forwarder
 
 ```python
 import asyncio
-import httpx
-from snmpkit.manager import TrapReceiver
-
-CRITICAL_TRAPS = {
-    "1.3.6.1.6.3.1.1.5.3": "Link Down",
-    "1.3.6.1.4.1.9.9.13.3.0.1": "Fan Failure",
-    "1.3.6.1.4.1.9.9.13.3.0.3": "Temperature Alert",
-}
-
-WEBHOOK_URL = "https://hooks.slack.com/services/xxx/yyy/zzz"
-
-async def forward_critical(trap):
-    alert_name = CRITICAL_TRAPS.get(trap.trap_oid)
-    if not alert_name:
-        return
-
-    message = {
-        "text": f":warning: *{alert_name}* from {trap.source[0]}",
-        "attachments": [
-            {
-                "fields": [
-                    {"title": str(vb.oid), "value": str(vb.value), "short": True}
-                    for vb in trap.varbinds[:10]
-                ],
-            }
-        ],
-    }
-
-    async with httpx.AsyncClient() as client:
-        await client.post(WEBHOOK_URL, json=message)
+from snmpkit.manager import Manager, TrapReceiver
 
 async def main():
-    receiver = TrapReceiver(port=162)
-    receiver.on_trap(forward_critical)
-    await receiver.start()
+    async with TrapReceiver(port=1162) as receiver:
+        async with Manager("10.0.0.1", port=162) as mgr:
+            async for trap in receiver:
+                # Forward as inform to upstream collector
+                await mgr.send_inform(
+                    trap_oid=trap.trap_oid,
+                    varbinds=trap.varbinds,
+                    uptime=trap.uptime,
+                )
 
 asyncio.run(main())
 ```
@@ -396,4 +214,4 @@ asyncio.run(main())
 ## Next Steps
 
 - [SNMPv3](/docs/manager/snmpv3) — Secure trap configuration
-- [Examples](/docs/manager/examples) — More patterns
+- [Operations](/docs/manager/operations) — Full API reference
