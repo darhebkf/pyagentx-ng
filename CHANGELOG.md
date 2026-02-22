@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-02-22
+
+### Added
+
+- **Manager Trap/Inform Support**
+  - `Manager.send_trap()` — fire-and-forget SNMPv2c trap sending
+  - `Manager.send_inform()` — SNMPv2c InformRequest with Response ACK
+  - `_build_trap_varbinds()` helper for sysUpTime + snmpTrapOID + user varbinds
+
+- **TrapReceiver**
+  - Async UDP listener for incoming traps and informs
+  - Async iterator protocol (`async for msg in receiver`)
+  - Auto-ACK for InformRequests (RFC 3416)
+  - `TrapMessage` dataclass with parsed trap OID, uptime, varbinds, and source
+  - Filters non-trap PDU types (GET/SET/etc.)
+
+- **Table Operations**
+  - `Manager.get_table()` — GETBULK-based SNMP table walks
+  - Column filtering via `columns` parameter
+  - Returns `dict[tuple[int, ...], dict[int, Value]]` indexed by row/column
+
+- **Concurrent Polling**
+  - `poll_many()` async generator for polling multiple targets
+  - `PollTarget` dataclass with per-target configuration (host, port, community, v3 credentials)
+  - `PollResult` dataclass with target, OID, value, and error fields
+  - Semaphore-bounded concurrency with per-target error isolation
+
+- **Rust Bindings**
+  - `encode_snmp_trap_v2c()` / `encode_snmp_inform_v2c()` — trap/inform PDU encoding
+  - `encode_snmp_response_v2c()` — response PDU encoding (for inform ACKs)
+  - `decode_snmp_message()` — generic SNMP message decoder (version, community, PDU type, varbinds)
+
+- **CI**
+  - Test matrix expanded to Python 3.11, 3.12, 3.13, 3.14
+
+### Fixed
+
+- `Value.__str__` and `__repr__` now work correctly in Python (PyO3 complex enum `fmt::Display` was not auto-wired)
+- Manager exception checks use equality comparison instead of string matching
+- Parenthesized multiple exception types for Python 3.11 compatibility
+
 ## [1.2.1] - 2026-02-19
 
 ### Changed
@@ -124,8 +165,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Python 3.14+
 - Rust 1.83.0+
 
-[Unreleased]: https://github.com/darhebkf/snmpkit/compare/v1.2.5...HEAD
-[1.2.5]: https://github.com/darhebkf/snmpkit/compare/v1.2.0...v1.2.5
+[Unreleased]: https://github.com/darhebkf/snmpkit/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/darhebkf/snmpkit/compare/v1.2.1...v1.3.0
+[1.2.1]: https://github.com/darhebkf/snmpkit/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/darhebkf/snmpkit/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/darhebkf/snmpkit/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/darhebkf/snmpkit/compare/v1.0.0...v1.0.1
