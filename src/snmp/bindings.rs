@@ -2,8 +2,8 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
 use super::auth;
-use super::message::{MessageV1, MessageV2c};
-use super::pdu::{BulkPdu, ErrorStatus, Pdu, VarBind, VarBindValue};
+use super::message::{MessageV1, MessageV1Trap, MessageV2c};
+use super::pdu::{BulkPdu, ErrorStatus, Pdu, TRAP_V1_TAG, TrapV1Pdu, VarBind, VarBindValue};
 use super::privacy;
 use super::usm::{AuthProtocol, PrivProtocol, UsmSecurityParameters};
 use super::v3::{MessageV3, MsgFlags, ScopedPdu, ScopedPduData};
@@ -203,6 +203,40 @@ pub fn encode_snmp_set_v2c(
 ) -> PyResult<Py<PyBytes>> {
     let internal_varbinds: Vec<VarBind> = varbinds.iter().map(|vb| vb.into()).collect();
     let msg = MessageV2c::set_request(community.as_bytes(), request_id, internal_varbinds);
+    let mut buf = Vec::new();
+    msg.encode(&mut buf)
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+    Ok(PyBytes::new(py, &buf).into())
+}
+
+// SNMPv1 Trap encoding
+
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+pub fn encode_snmp_trap_v1(
+    py: Python<'_>,
+    community: &str,
+    enterprise: &str,
+    agent_addr: (u8, u8, u8, u8),
+    generic_trap: i32,
+    specific_trap: i32,
+    timestamp: u32,
+    varbinds: Vec<PySnmpVarBind>,
+) -> PyResult<Py<PyBytes>> {
+    let enterprise_oid: Oid = enterprise
+        .parse()
+        .map_err(|_| pyo3::exceptions::PyValueError::new_err("Invalid enterprise OID"))?;
+    let addr = [agent_addr.0, agent_addr.1, agent_addr.2, agent_addr.3];
+    let internal_varbinds: Vec<VarBind> = varbinds.iter().map(|vb| vb.into()).collect();
+    let pdu = TrapV1Pdu::new(
+        enterprise_oid,
+        addr,
+        generic_trap,
+        specific_trap,
+        timestamp,
+        internal_varbinds,
+    );
+    let msg = MessageV1Trap::new(community.as_bytes(), pdu);
     let mut buf = Vec::new();
     msg.encode(&mut buf)
         .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
@@ -1064,6 +1098,17 @@ pub struct PySnmpMessage {
     pub error_index: i32,
     #[pyo3(get)]
     pub varbinds: Vec<PySnmpVarBind>,
+    // v1 trap fields
+    #[pyo3(get)]
+    pub enterprise: String,
+    #[pyo3(get)]
+    pub agent_addr: (u8, u8, u8, u8),
+    #[pyo3(get)]
+    pub generic_trap: i32,
+    #[pyo3(get)]
+    pub specific_trap: i32,
+    #[pyo3(get)]
+    pub timestamp: u32,
     // v3 fields
     #[pyo3(get)]
     pub msg_id: i32,
@@ -1108,24 +1153,68 @@ pub fn decode_snmp_message(data: &[u8]) -> PyResult<PySnmpMessage> {
 
     match version {
         0 => {
-            // v1
-            let (msg, _) = MessageV1::decode(data)
+            // v1 — peek at PDU tag to decide between standard and trap
+            let (outer_inner, _) = crate::asn1::ber::decode_sequence(data)
                 .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-            Ok(PySnmpMessage {
-                version: 0,
-                community: msg.community,
-                pdu_type: msg.pdu.pdu_type as u8,
-                request_id: msg.pdu.request_id,
-                error_status: msg.pdu.error_status as i32,
-                error_index: msg.pdu.error_index,
-                varbinds: msg.pdu.varbinds.into_iter().map(|vb| vb.into()).collect(),
-                msg_id: 0,
-                engine_id: vec![],
-                engine_boots: 0,
-                engine_time: 0,
-                user_name: vec![],
-                context_name: vec![],
-            })
+            let (_, ver_len) = crate::asn1::ber::decode_integer(outer_inner)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+            let (_, comm_len) = crate::asn1::ber::decode_octet_string(&outer_inner[ver_len..])
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+            let pdu_data = &outer_inner[ver_len + comm_len..];
+            let pdu_tag = pdu_data.first().copied().unwrap_or(0);
+
+            if pdu_tag == TRAP_V1_TAG {
+                let (msg, _) = MessageV1Trap::decode(data)
+                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                Ok(PySnmpMessage {
+                    version: 0,
+                    community: msg.community,
+                    pdu_type: TRAP_V1_TAG,
+                    request_id: 0,
+                    error_status: 0,
+                    error_index: 0,
+                    varbinds: msg.pdu.varbinds.into_iter().map(|vb| vb.into()).collect(),
+                    enterprise: msg.pdu.enterprise.to_string(),
+                    agent_addr: (
+                        msg.pdu.agent_addr[0],
+                        msg.pdu.agent_addr[1],
+                        msg.pdu.agent_addr[2],
+                        msg.pdu.agent_addr[3],
+                    ),
+                    generic_trap: msg.pdu.generic_trap,
+                    specific_trap: msg.pdu.specific_trap,
+                    timestamp: msg.pdu.timestamp,
+                    msg_id: 0,
+                    engine_id: vec![],
+                    engine_boots: 0,
+                    engine_time: 0,
+                    user_name: vec![],
+                    context_name: vec![],
+                })
+            } else {
+                let (msg, _) = MessageV1::decode(data)
+                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                Ok(PySnmpMessage {
+                    version: 0,
+                    community: msg.community,
+                    pdu_type: msg.pdu.pdu_type as u8,
+                    request_id: msg.pdu.request_id,
+                    error_status: msg.pdu.error_status as i32,
+                    error_index: msg.pdu.error_index,
+                    varbinds: msg.pdu.varbinds.into_iter().map(|vb| vb.into()).collect(),
+                    enterprise: String::new(),
+                    agent_addr: (0, 0, 0, 0),
+                    generic_trap: 0,
+                    specific_trap: 0,
+                    timestamp: 0,
+                    msg_id: 0,
+                    engine_id: vec![],
+                    engine_boots: 0,
+                    engine_time: 0,
+                    user_name: vec![],
+                    context_name: vec![],
+                })
+            }
         }
         1 => {
             // v2c
@@ -1140,6 +1229,11 @@ pub fn decode_snmp_message(data: &[u8]) -> PyResult<PySnmpMessage> {
                     error_status: pdu.error_status as i32,
                     error_index: pdu.error_index,
                     varbinds: pdu.varbinds.into_iter().map(|vb| vb.into()).collect(),
+                    enterprise: String::new(),
+                    agent_addr: (0, 0, 0, 0),
+                    generic_trap: 0,
+                    specific_trap: 0,
+                    timestamp: 0,
                     msg_id: 0,
                     engine_id: vec![],
                     engine_boots: 0,
@@ -1155,6 +1249,11 @@ pub fn decode_snmp_message(data: &[u8]) -> PyResult<PySnmpMessage> {
                     error_status: 0,
                     error_index: 0,
                     varbinds: pdu.varbinds.into_iter().map(|vb| vb.into()).collect(),
+                    enterprise: String::new(),
+                    agent_addr: (0, 0, 0, 0),
+                    generic_trap: 0,
+                    specific_trap: 0,
+                    timestamp: 0,
                     msg_id: 0,
                     engine_id: vec![],
                     engine_boots: 0,
@@ -1202,6 +1301,11 @@ pub fn decode_snmp_message(data: &[u8]) -> PyResult<PySnmpMessage> {
                         error_status,
                         error_index,
                         varbinds: varbinds.into_iter().map(|vb| vb.into()).collect(),
+                        enterprise: String::new(),
+                        agent_addr: (0, 0, 0, 0),
+                        generic_trap: 0,
+                        specific_trap: 0,
+                        timestamp: 0,
                         msg_id: msg.msg_id,
                         engine_id: context_engine_id,
                         engine_boots: usm.authoritative_engine_boots,
@@ -1218,6 +1322,142 @@ pub fn decode_snmp_message(data: &[u8]) -> PyResult<PySnmpMessage> {
         _ => Err(pyo3::exceptions::PyValueError::new_err(format!(
             "Unknown SNMP version: {version}"
         ))),
+    }
+}
+
+// Decode an SNMPv3 message with auth/priv support, returning PySnmpMessage.
+// Used by the TrapReceiver for v3 traps/informs.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+pub fn decode_snmp_v3_message(
+    data: &[u8],
+    auth_protocol: Option<&str>,
+    auth_key: Option<Vec<u8>>,
+    priv_protocol: Option<&str>,
+    priv_key: Option<Vec<u8>>,
+    engine_boots: i32,
+    engine_time: i32,
+) -> PyResult<PySnmpMessage> {
+    let (msg, _) = MessageV3::decode(data)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+    // Verify authentication if configured
+    if let (Some(proto_name), Some(key)) = (&auth_protocol, &auth_key) {
+        let proto = parse_auth_protocol(proto_name)?;
+        if let Some(offset) = find_auth_params_offset(data) {
+            auth::verify_authentication(data, offset, key, proto)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        }
+    }
+
+    let (usm, _) = UsmSecurityParameters::decode(&msg.security_parameters)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+    let (
+        context_engine_id,
+        context_name,
+        pdu_type,
+        request_id,
+        error_status,
+        error_index,
+        varbinds,
+    ) = match msg.scoped_pdu {
+        ScopedPdu::Plaintext {
+            context_engine_id,
+            context_name,
+            pdu,
+        } => {
+            let (pt, rid, es, ei, vbs) = extract_scoped_pdu_fields(pdu);
+            (context_engine_id, context_name, pt, rid, es, ei, vbs)
+        }
+        ScopedPdu::Encrypted(encrypted) => {
+            let proto_name = priv_protocol.ok_or_else(|| {
+                pyo3::exceptions::PyValueError::new_err("encrypted PDU but no priv_protocol")
+            })?;
+            let key = priv_key.ok_or_else(|| {
+                pyo3::exceptions::PyValueError::new_err("encrypted PDU but no priv_key")
+            })?;
+            let proto = parse_priv_protocol(proto_name)?;
+
+            let plaintext = privacy::decrypt_scoped_pdu(
+                &encrypted,
+                &key,
+                &usm.priv_parameters,
+                engine_boots,
+                engine_time,
+                proto,
+            )
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+            // Parse decrypted ScopedPDU
+            let (inner, _) = crate::asn1::ber::decode_sequence(&plaintext)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+            let mut pos = 0;
+            let (cei, cei_len) = crate::asn1::ber::decode_octet_string(inner)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+            pos += cei_len;
+            let (cn, cn_len) = crate::asn1::ber::decode_octet_string(&inner[pos..])
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+            pos += cn_len;
+
+            let pdu_data = &inner[pos..];
+            let pdu = if !pdu_data.is_empty()
+                && pdu_data[0] == super::pdu::PduType::GetBulkRequest as u8
+            {
+                let (p, _) = BulkPdu::decode(pdu_data)
+                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                ScopedPduData::Bulk(p)
+            } else {
+                let (p, _) = Pdu::decode(pdu_data)
+                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                ScopedPduData::Standard(p)
+            };
+
+            let (pt, rid, es, ei, vbs) = extract_scoped_pdu_fields(pdu);
+            (cei.to_vec(), cn.to_vec(), pt, rid, es, ei, vbs)
+        }
+    };
+
+    Ok(PySnmpMessage {
+        version: 3,
+        community: vec![],
+        pdu_type,
+        request_id,
+        error_status,
+        error_index,
+        varbinds: varbinds.into_iter().map(|vb| vb.into()).collect(),
+        enterprise: String::new(),
+        agent_addr: (0, 0, 0, 0),
+        generic_trap: 0,
+        specific_trap: 0,
+        timestamp: 0,
+        msg_id: msg.msg_id,
+        engine_id: context_engine_id,
+        engine_boots: usm.authoritative_engine_boots,
+        engine_time: usm.authoritative_engine_time,
+        user_name: usm.user_name,
+        context_name,
+    })
+}
+
+// Extract PDU fields from ScopedPduData
+fn extract_scoped_pdu_fields(pdu: ScopedPduData) -> (u8, i32, i32, i32, Vec<super::pdu::VarBind>) {
+    match pdu {
+        ScopedPduData::Standard(p) => (
+            p.pdu_type as u8,
+            p.request_id,
+            p.error_status as i32,
+            p.error_index,
+            p.varbinds,
+        ),
+        ScopedPduData::Bulk(p) => (
+            super::pdu::PduType::GetBulkRequest as u8,
+            p.request_id,
+            0,
+            0,
+            p.varbinds,
+        ),
     }
 }
 

@@ -111,6 +111,12 @@ fn snmpkit_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
 
+    // SNMPv1 Trap
+    m.add_function(pyo3::wrap_pyfunction!(
+        snmp::bindings::encode_snmp_trap_v1,
+        m
+    )?)?;
+
     // Trap/Inform/Response v2c
     m.add_function(pyo3::wrap_pyfunction!(
         snmp::bindings::encode_snmp_trap_v2c,
@@ -179,6 +185,10 @@ fn snmpkit_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<snmp::bindings::PySnmpMessage>()?;
     m.add_function(pyo3::wrap_pyfunction!(
         snmp::bindings::decode_snmp_message,
+        m
+    )?)?;
+    m.add_function(pyo3::wrap_pyfunction!(
+        snmp::bindings::decode_snmp_v3_message,
         m
     )?)?;
 

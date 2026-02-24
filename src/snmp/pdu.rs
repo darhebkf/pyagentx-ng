@@ -408,6 +408,104 @@ impl BulkPdu {
     }
 }
 
+// SNMPv1 Trap PDU tag (RFC 1157, section 4.1.6)
+// Not in PduType enum because v1 traps have a completely different structure
+pub const TRAP_V1_TAG: u8 = 0xA4;
+
+// SNMPv1 Trap PDU (RFC 1157 section 4.1.6)
+#[derive(Debug, Clone, PartialEq)]
+pub struct TrapV1Pdu {
+    pub enterprise: Oid,
+    pub agent_addr: [u8; 4],
+    pub generic_trap: i32,
+    pub specific_trap: i32,
+    pub timestamp: u32,
+    pub varbinds: Vec<VarBind>,
+}
+
+impl TrapV1Pdu {
+    pub fn new(
+        enterprise: Oid,
+        agent_addr: [u8; 4],
+        generic_trap: i32,
+        specific_trap: i32,
+        timestamp: u32,
+        varbinds: Vec<VarBind>,
+    ) -> Self {
+        Self {
+            enterprise,
+            agent_addr,
+            generic_trap,
+            specific_trap,
+            timestamp,
+            varbinds,
+        }
+    }
+
+    pub fn encode<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        use crate::asn1::ber::{encode_ip_address, encode_unsigned};
+
+        let mut inner = Vec::new();
+        encode_oid(&mut inner, &self.enterprise)?;
+        encode_ip_address(
+            &mut inner,
+            self.agent_addr[0],
+            self.agent_addr[1],
+            self.agent_addr[2],
+            self.agent_addr[3],
+        )?;
+        encode_integer(&mut inner, self.generic_trap as i64)?;
+        encode_integer(&mut inner, self.specific_trap as i64)?;
+        encode_unsigned(&mut inner, 0x43, self.timestamp)?;
+        encode_varbind_list(&mut inner, &self.varbinds)?;
+
+        encode_tagged(writer, TRAP_V1_TAG, &inner)
+    }
+
+    pub fn decode(data: &[u8]) -> Result<(Self, usize), BerError> {
+        use crate::asn1::ber::{decode_ip_address, decode_unsigned};
+
+        if data.is_empty() || data[0] != TRAP_V1_TAG {
+            return Err(BerError::InvalidTag(if data.is_empty() {
+                0
+            } else {
+                data[0]
+            }));
+        }
+
+        let (inner, total) = decode_tagged(data, TRAP_V1_TAG)?;
+
+        let (enterprise, ent_len) = decode_oid(inner)?;
+        let pos = ent_len;
+
+        let (agent_addr, addr_len) = decode_ip_address(&inner[pos..])?;
+        let pos = pos + addr_len;
+
+        let (generic_trap, gt_len) = decode_integer(&inner[pos..])?;
+        let pos = pos + gt_len;
+
+        let (specific_trap, st_len) = decode_integer(&inner[pos..])?;
+        let pos = pos + st_len;
+
+        let (timestamp, ts_len) = decode_unsigned(&inner[pos..], 0x43)?;
+        let pos = pos + ts_len;
+
+        let (varbinds, _) = decode_varbind_list(&inner[pos..])?;
+
+        Ok((
+            Self {
+                enterprise,
+                agent_addr,
+                generic_trap: generic_trap as i32,
+                specific_trap: specific_trap as i32,
+                timestamp,
+                varbinds,
+            },
+            total,
+        ))
+    }
+}
+
 // Value encoding for SNMP (uses BER, different tags than AgentX)
 fn encode_value<W: Write>(writer: &mut W, value: &Value) -> io::Result<()> {
     use crate::asn1::ber::{
@@ -609,6 +707,65 @@ mod tests {
         assert_eq!(decoded.non_repeaters, 0);
         assert_eq!(decoded.max_repetitions, 10);
         assert_eq!(decoded.varbinds.len(), 1);
+    }
+
+    #[test]
+    fn test_trap_v1_pdu_roundtrip() {
+        let enterprise: Oid = "1.3.6.1.4.1.99".parse().unwrap();
+        let oid: Oid = "1.3.6.1.4.1.99.1.1.0".parse().unwrap();
+        let vb = VarBind::new(oid, Value::Integer(42));
+        let pdu = TrapV1Pdu::new(
+            enterprise.clone(),
+            [192, 168, 1, 1],
+            6, // enterpriseSpecific
+            1,
+            54321,
+            vec![vb],
+        );
+
+        let mut buf = Vec::new();
+        pdu.encode(&mut buf).unwrap();
+
+        let (decoded, consumed) = TrapV1Pdu::decode(&buf).unwrap();
+        assert_eq!(consumed, buf.len());
+        assert_eq!(decoded.enterprise, enterprise);
+        assert_eq!(decoded.agent_addr, [192, 168, 1, 1]);
+        assert_eq!(decoded.generic_trap, 6);
+        assert_eq!(decoded.specific_trap, 1);
+        assert_eq!(decoded.timestamp, 54321);
+        assert_eq!(decoded.varbinds.len(), 1);
+        match &decoded.varbinds[0].value {
+            VarBindValue::Value(Value::Integer(v)) => assert_eq!(*v, 42),
+            _ => panic!("expected Integer(42)"),
+        }
+    }
+
+    #[test]
+    fn test_trap_v1_pdu_cold_start() {
+        let enterprise: Oid = "1.3.6.1.6.3.1.1.5".parse().unwrap();
+        let pdu = TrapV1Pdu::new(
+            enterprise,
+            [10, 0, 0, 1],
+            0, // coldStart
+            0,
+            0,
+            vec![],
+        );
+
+        let mut buf = Vec::new();
+        pdu.encode(&mut buf).unwrap();
+
+        let (decoded, _) = TrapV1Pdu::decode(&buf).unwrap();
+        assert_eq!(decoded.generic_trap, 0);
+        assert_eq!(decoded.specific_trap, 0);
+        assert_eq!(decoded.timestamp, 0);
+        assert_eq!(decoded.varbinds.len(), 0);
+    }
+
+    #[test]
+    fn test_trap_v1_pdu_invalid_tag() {
+        let result = TrapV1Pdu::decode(&[0xA0, 0x00]);
+        assert!(result.is_err());
     }
 
     #[test]

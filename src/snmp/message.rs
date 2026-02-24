@@ -6,7 +6,7 @@ use crate::asn1::ber::{
     encode_sequence,
 };
 
-use super::pdu::{BulkPdu, Pdu, PduType};
+use super::pdu::{BulkPdu, Pdu, PduType, TRAP_V1_TAG, TrapV1Pdu};
 
 // SNMP versions (wire format values per RFCs)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,6 +80,56 @@ impl MessageV1 {
 
         let (community, comm_len) = decode_octet_string(&inner[ver_len..])?;
         let (pdu, _) = Pdu::decode(&inner[ver_len + comm_len..])?;
+
+        Ok((Self { community, pdu }, total))
+    }
+}
+
+// SNMPv1 Trap message (RFC 1157 section 4.1.6)
+// Separate from MessageV1 because TrapV1 has a fundamentally different PDU structure
+#[derive(Debug, Clone, PartialEq)]
+pub struct MessageV1Trap {
+    pub community: Vec<u8>,
+    pub pdu: TrapV1Pdu,
+}
+
+impl MessageV1Trap {
+    pub fn new(community: impl Into<Vec<u8>>, pdu: TrapV1Pdu) -> Self {
+        Self {
+            community: community.into(),
+            pdu,
+        }
+    }
+
+    pub fn encode<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        let mut inner = Vec::new();
+        encode_integer(&mut inner, Version::V1 as i64)?;
+        encode_octet_string(&mut inner, &self.community)?;
+        self.pdu.encode(&mut inner)?;
+
+        encode_sequence(writer, &inner)
+    }
+
+    pub fn decode(data: &[u8]) -> Result<(Self, usize), BerError> {
+        let (inner, total) = decode_sequence(data)?;
+
+        let (version, ver_len) = decode_integer(inner)?;
+        if version != Version::V1 as i64 {
+            return Err(BerError::InvalidTag(version as u8));
+        }
+
+        let (community, comm_len) = decode_octet_string(&inner[ver_len..])?;
+        let pdu_data = &inner[ver_len + comm_len..];
+
+        if pdu_data.is_empty() {
+            return Err(BerError::BufferTooShort);
+        }
+
+        if pdu_data[0] != TRAP_V1_TAG {
+            return Err(BerError::InvalidTag(pdu_data[0]));
+        }
+
+        let (pdu, _) = TrapV1Pdu::decode(pdu_data)?;
 
         Ok((Self { community, pdu }, total))
     }
@@ -390,6 +440,34 @@ mod tests {
             }
             _ => panic!("expected Standard"),
         }
+    }
+
+    #[test]
+    fn test_message_v1_trap_roundtrip() {
+        let enterprise: Oid = "1.3.6.1.4.1.99".parse().unwrap();
+        let vb_oid: Oid = "1.3.6.1.4.1.99.1.1.0".parse().unwrap();
+        let vb = super::super::pdu::VarBind::new(vb_oid, crate::types::Value::Integer(42));
+        let pdu = super::super::pdu::TrapV1Pdu::new(
+            enterprise.clone(),
+            [192, 168, 1, 1],
+            6,
+            1,
+            54321,
+            vec![vb],
+        );
+        let msg = MessageV1Trap::new(b"public".to_vec(), pdu);
+
+        let mut buf = Vec::new();
+        msg.encode(&mut buf).unwrap();
+
+        let (decoded, _) = MessageV1Trap::decode(&buf).unwrap();
+        assert_eq!(decoded.community, b"public");
+        assert_eq!(decoded.pdu.enterprise, enterprise);
+        assert_eq!(decoded.pdu.agent_addr, [192, 168, 1, 1]);
+        assert_eq!(decoded.pdu.generic_trap, 6);
+        assert_eq!(decoded.pdu.specific_trap, 1);
+        assert_eq!(decoded.pdu.timestamp, 54321);
+        assert_eq!(decoded.pdu.varbinds.len(), 1);
     }
 
     #[test]
