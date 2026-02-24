@@ -67,11 +67,13 @@ class TestSendTrap:
         with pytest.raises(RuntimeError, match="Not connected"):
             await mgr.send_trap("1.3.6.1.4.1.99.0.1")
 
-    async def test_send_trap_v1_raises(self):
+    async def test_send_trap_v1_calls_send_only(self):
+        """v1 traps are fire-and-forget via send_only."""
         mgr = Manager("10.0.0.1", version=1)
         mgr.transport = MagicMock()
-        with pytest.raises(ValueError, match="SNMPv1"):
-            await mgr.send_trap("1.3.6.1.4.1.99.0.1")
+        mgr.transport.send_only = AsyncMock()
+        await mgr.send_trap("1.3.6.1.4.1.99.0.1", agent_addr=(10, 0, 0, 1))
+        mgr.transport.send_only.assert_called_once()
 
     async def test_send_trap_calls_send_only(self, connected_manager):
         """send_trap is fire-and-forget (uses send_only, not send_request)."""

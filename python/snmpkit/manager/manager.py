@@ -27,6 +27,7 @@ from snmpkit.core import (
     encode_snmp_inform_v3_secure,
     encode_snmp_set_v2c,
     encode_snmp_set_v3_secure,
+    encode_snmp_trap_v1,
     encode_snmp_trap_v2c,
     encode_snmp_trap_v3_secure,
     password_to_localized_key,
@@ -37,6 +38,7 @@ from snmpkit.manager.exceptions import (
     NoSuchInstanceError,
     NoSuchObjectError,
 )
+from snmpkit.manager.tcp_transport import TcpTransport
 from snmpkit.manager.transport import UdpTransport
 
 logger = logging.getLogger("snmpkit.manager")
@@ -71,6 +73,7 @@ class Manager:
         # Common
         timeout: float = 5.0,
         retries: int = 3,
+        transport: str = "udp",
     ) -> None:
         self.host = host
         self.port = port
@@ -97,7 +100,8 @@ class Manager:
         self._auth_key: bytes | None = None
         self._priv_key: bytes | None = None
 
-        self.transport: UdpTransport | None = None
+        self._transport_type = transport.lower()
+        self.transport: UdpTransport | TcpTransport | None = None
         self._msg_id: int = random.randint(1, 2**31 - 1)
         self.request_id: int = random.randint(1, 2**31 - 1)
 
@@ -110,12 +114,20 @@ class Manager:
 
     async def connect(self) -> None:
         """Connect to the target device."""
-        self.transport = UdpTransport(
-            self.host,
-            self.port,
-            self.timeout,
-            self.retries,
-        )
+        if self._transport_type == "tcp":
+            self.transport = TcpTransport(
+                self.host,
+                self.port,
+                self.timeout,
+                self.retries,
+            )
+        else:
+            self.transport = UdpTransport(
+                self.host,
+                self.port,
+                self.timeout,
+                self.retries,
+            )
         await self.transport.connect()
         logger.info("Connected to %s:%d", self.host, self.port)
 
@@ -649,22 +661,46 @@ class Manager:
         trap_oid: str,
         varbinds: list[tuple[str, Value]] | None = None,
         uptime: int | None = None,
+        *,
+        # v1-only parameters
+        enterprise: str | None = None,
+        agent_addr: tuple[int, int, int, int] = (0, 0, 0, 0),
+        generic_trap: int = 6,
+        specific_trap: int = 0,
     ) -> None:
-        """Send an SNMPv2c/v3 Trap (fire-and-forget, no response expected).
+        """Send an SNMP Trap (fire-and-forget, no response expected).
+
+        For SNMPv1, enterprise and agent_addr describe the trap source.
+        For SNMPv2c/v3, trap_oid is used as snmpTrapOID.0.
 
         Args:
-            trap_oid: The trap OID (snmpTrapOID.0 value)
+            trap_oid: The trap OID (enterprise OID for v1, snmpTrapOID.0 for v2c/v3)
             varbinds: Optional list of (oid, value) tuples
             uptime: Optional sysUpTime in hundredths of a second
+            enterprise: Enterprise OID for v1 traps (defaults to trap_oid)
+            agent_addr: Agent IPv4 address for v1 traps
+            generic_trap: Generic trap type for v1 (0-6, default 6=enterpriseSpecific)
+            specific_trap: Specific trap code for v1
         """
         if self.transport is None:
             raise RuntimeError("Not connected")
-        if self.version == 1:
-            raise ValueError("Trap not supported for SNMPv1 (use SNMPv2c or v3)")
 
-        request_id = self._next_request_id()
-        trap_varbinds = self._build_trap_varbinds(trap_oid, varbinds, uptime)
-        request = self._encode_trap(trap_varbinds, request_id)
+        if self.version == 1:
+            py_vbs = [SnmpVarBind(Oid(oid), val) for oid, val in (varbinds or [])]
+            request = encode_snmp_trap_v1(
+                self.community,
+                enterprise or trap_oid,
+                agent_addr,
+                generic_trap,
+                specific_trap,
+                uptime or 0,
+                py_vbs,
+            )
+        else:
+            request_id = self._next_request_id()
+            trap_varbinds = self._build_trap_varbinds(trap_oid, varbinds, uptime)
+            request = self._encode_trap(trap_varbinds, request_id)
+
         await self.transport.send_only(request)
         logger.debug("Sent trap %s", trap_oid)
 

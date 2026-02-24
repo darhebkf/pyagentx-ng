@@ -296,6 +296,18 @@ def encode_snmp_getbulk_v3(
 ) -> bytes: ...
 def decode_snmp_response(data: bytes) -> SnmpResponse: ...
 
+# SNMPv1 Trap
+
+def encode_snmp_trap_v1(
+    community: str,
+    enterprise: str,
+    agent_addr: tuple[int, int, int, int],
+    generic_trap: int,
+    specific_trap: int,
+    timestamp: int,
+    varbinds: list[SnmpVarBind],
+) -> bytes: ...
+
 # Trap/Inform/Response v2c
 
 def encode_snmp_trap_v2c(
@@ -474,6 +486,17 @@ class SnmpMessage:
     def error_index(self) -> int: ...
     @property
     def varbinds(self) -> list[SnmpVarBind]: ...
+    # v1 trap fields
+    @property
+    def enterprise(self) -> str: ...
+    @property
+    def agent_addr(self) -> tuple[int, int, int, int]: ...
+    @property
+    def generic_trap(self) -> int: ...
+    @property
+    def specific_trap(self) -> int: ...
+    @property
+    def timestamp(self) -> int: ...
     @property
     def msg_id(self) -> int: ...
     @property
@@ -489,3 +512,12 @@ class SnmpMessage:
     def __repr__(self) -> str: ...
 
 def decode_snmp_message(data: bytes) -> SnmpMessage: ...
+def decode_snmp_v3_message(
+    data: bytes,
+    auth_protocol: str | None = None,
+    auth_key: bytes | None = None,
+    priv_protocol: str | None = None,
+    priv_key: bytes | None = None,
+    engine_boots: int = 0,
+    engine_time: int = 0,
+) -> SnmpMessage: ...
