@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-02-25
+
+### Added
+
+- **SNMPv1 Trap Support (RFC 1157)**
+  - `Manager.send_trap()` now supports `version=1` with enterprise OID, agent address, generic/specific trap types
+  - `encode_snmp_trap_v1()` Rust binding for v1 Trap-PDU (0xA4 tag)
+  - `TrapReceiver` accepts v1 traps with enterprise, agent_addr, generic_trap, specific_trap fields on `TrapMessage`
+
+- **TCP Transport (RFC 3430)**
+  - `TcpTransport` class with 4-byte big-endian length-prefix framing
+  - `Manager(transport="tcp")` parameter for TCP connections
+  - Full send_request/send_only with retry support
+
+- **IPv6 Transport**
+  - Dual-stack UDP and TCP transport (IPv4 + IPv6)
+  - `TrapReceiver` supports `::` bind for dual-stack listening
+
+- **Synchronous API**
+  - `SyncManager` — blocking wrapper with persistent background uvloop thread
+  - Context manager support (`with SyncManager(...) as mgr`)
+  - All Manager operations: `get`, `get_many`, `set`, `walk`, `bulk_walk`, `get_table`, `send_trap`, `send_inform`
+
+- **SNMPv3 TrapReceiver**
+  - `TrapReceiver.add_user(V3User)` for multi-user v3 trap receiving
+  - USM key derivation and caching per (engine_id, user_name)
+  - Auth/priv decryption for incoming v3 traps and informs
+  - v3 InformRequest ACK with proper security parameters
+  - `V3User` dataclass for credential management
+  - `TrapMessage` extended with v3 fields: engine_id, user_name, context_name, msg_id
+
+- **Notification Filtering**
+  - `TrapFilter` dataclass with allowed_sources, allowed_communities, allowed_oid_prefixes, denied_sources
+  - OID prefix matching uses `Oid.starts_with()` (not string prefix)
+  - OR logic for allow filters, deny takes precedence
+  - `TrapReceiver.add_filter(TrapFilter)` integration
+
+- **Rust Bindings**
+  - `decode_snmp_v3_message()` — generic v3 message decoder with auth/priv support
+  - `encode_snmp_trap_v1()` — v1 trap PDU encoding
+  - `PySnmpMessage` extended with v1 trap fields and v3 security fields
+
 ## [1.3.0] - 2026-02-22
 
 ### Added
@@ -165,7 +207,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Python 3.14+
 - Rust 1.83.0+
 
-[Unreleased]: https://github.com/darhebkf/snmpkit/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/darhebkf/snmpkit/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/darhebkf/snmpkit/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/darhebkf/snmpkit/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/darhebkf/snmpkit/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/darhebkf/snmpkit/compare/v1.1.0...v1.2.0
