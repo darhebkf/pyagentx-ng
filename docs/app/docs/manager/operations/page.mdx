@@ -88,7 +88,7 @@ value = await mgr.get("1.3.6.1.2.1.1.1.0")
 Retrieve multiple OIDs in a single request.
 
 ```python
-async def get_many(self, *oids: str) -> list[Value]
+async def get_many(self, *oids: str, raise_exceptions: bool = True) -> list[Value]
 ```
 
 ```python
@@ -98,6 +98,20 @@ values = await mgr.get_many(
 )
 # values[0] = sysDescr
 # values[1] = sysUpTime
+```
+
+By default, `NoSuchObjectError` / `NoSuchInstanceError` / `EndOfMibViewError` are raised
+if any varbind in the response is an exception value. Pass `raise_exceptions=False` to
+return them as `Value.NoSuchObject()` etc. instead, enabling per-varbind inspection:
+
+```python
+values = await mgr.get_many(
+    "1.3.6.1.2.1.1.1.0",
+    "1.3.6.1.2.1.99.99.0",  # does not exist
+    raise_exceptions=False,
+)
+# values[0] = Value.OctetString(...)
+# values[1] = Value.NoSuchObject()
 ```
 
 ### get_next
@@ -186,7 +200,7 @@ async for oid, value in mgr.bulk_walk("1.3.6.1.2.1.2.2", bulk_size=25):
 
 ### set
 
-Set an OID value (v2c/v3 only).
+Set a single OID value (v2c/v3 only).
 
 ```python
 async def set(self, oid: str, value: Value) -> None
@@ -196,7 +210,23 @@ async def set(self, oid: str, value: Value) -> None
 from snmpkit.core import Value
 
 await mgr.set("1.3.6.1.2.1.1.5.0", Value.OctetString(b"new-hostname"))
-await mgr.set("1.3.6.1.2.1.1.6.0", Value.OctetString(b"Server Room"))
+```
+
+### set_many
+
+Set multiple OID/value pairs in a single SNMP SET PDU (v2c/v3 only). Use this when multiple values must be set atomically — for example, USM user creation with `createAndGo`.
+
+```python
+async def set_many(self, *varbinds: tuple[str, Value]) -> None
+```
+
+```python
+from snmpkit.core import Value
+
+await mgr.set_many(
+    ("1.3.6.1.2.1.1.5.0", Value.OctetString(b"new-hostname")),
+    ("1.3.6.1.2.1.1.6.0", Value.OctetString(b"Server Room")),
+)
 ```
 
 ### Value Types

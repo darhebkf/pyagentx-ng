@@ -113,10 +113,11 @@ Engine discovery is automatic on connect for SNMPv3.
 
 Methods:
 - `get(oid: str) -> Value` — Get single OID
-- `get_many(*oids: str) -> list[Value]` — Get multiple OIDs
+- `get_many(*oids: str, raise_exceptions: bool = True) -> list[Value]` — Get multiple OIDs. Pass `raise_exceptions=False` to return NoSuchObject/NoSuchInstance/EndOfMibView as values instead of raising.
 - `get_next(oid: str) -> tuple[str, Value]` — Get next OID
 - `get_bulk(*oids, non_repeaters=0, max_repetitions=10) -> list[tuple[str, Value]]` — Bulk get
-- `set(oid: str, value: Value) -> None` — Set OID value
+- `set(oid: str, value: Value) -> None` — Set single OID value
+- `set_many(*varbinds: tuple[str, Value]) -> None` — Set multiple OID/value pairs in one SET PDU
 - `walk(oid: str) -> AsyncIterator[tuple[str, Value]]` — Walk using GetNext
 - `bulk_walk(oid: str, bulk_size=10) -> AsyncIterator[tuple[str, Value]]` — Walk using GetBulk
 - `get_table(base_oid, columns=None, bulk_size=25) -> dict[tuple, dict[int, Value]]` — Structured table
