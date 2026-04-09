@@ -437,11 +437,18 @@ class Manager:
         results = await self.get_many(oid)
         return results[0]
 
-    async def get_many(self, *oids: str) -> list[Value]:
+    async def get_many(
+        self,
+        *oids: str,
+        raise_exceptions: bool = True,
+    ) -> list[Value]:
         """Get multiple OID values in a single request.
 
         Args:
             oids: OIDs to retrieve
+            raise_exceptions: If True (default), raise on NoSuchObject/NoSuchInstance/
+                EndOfMibView. If False, return exception values as-is so the caller
+                can inspect per-varbind.
 
         Returns:
             List of values in same order as requested OIDs
@@ -460,7 +467,8 @@ class Manager:
 
         values: list[Value] = []
         for vb in response.varbinds:
-            self._check_exception_value(vb.value)
+            if raise_exceptions:
+                self._check_exception_value(vb.value)
             values.append(vb.value)
 
         return values
@@ -540,6 +548,14 @@ class Manager:
             oid: OID to set
             value: Value to set
         """
+        await self.set_many((oid, value))
+
+    async def set_many(self, *varbinds: tuple[str, Value]) -> None:
+        """Set multiple OID values in a single SNMP SET PDU.
+
+        Args:
+            varbinds: One or more (oid, value) tuples to set atomically.
+        """
         if self.transport is None:
             raise RuntimeError("Not connected")
 
@@ -547,9 +563,9 @@ class Manager:
             raise ValueError("SET not implemented for SNMPv1")
 
         request_id = self._next_request_id()
-        varbind = SnmpVarBind(Oid(oid), value)
+        snmp_varbinds = [SnmpVarBind(Oid(oid), value) for oid, value in varbinds]
 
-        request = self._encode_set([varbind], request_id)
+        request = self._encode_set(snmp_varbinds, request_id)
         response_data = await self.transport.send_request(request)
         response = self._decode_response(response_data)
 

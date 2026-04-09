@@ -105,9 +105,9 @@ class SyncManager:
         """Get a single OID value."""
         return self._run(self._manager.get(oid))
 
-    def get_many(self, *oids: str) -> list[Value]:
+    def get_many(self, *oids: str, raise_exceptions: bool = True) -> list[Value]:
         """Get multiple OID values in a single request."""
-        return self._run(self._manager.get_many(*oids))
+        return self._run(self._manager.get_many(*oids, raise_exceptions=raise_exceptions))
 
     def get_next(self, oid: str) -> tuple[str, Value]:
         """Get the next OID and value after the given OID."""
@@ -116,6 +116,10 @@ class SyncManager:
     def set(self, oid: str, value: Value) -> None:
         """Set an OID value."""
         return self._run(self._manager.set(oid, value))
+
+    def set_many(self, *varbinds: tuple[str, Value]) -> None:
+        """Set multiple OID values in a single SNMP SET PDU."""
+        return self._run(self._manager.set_many(*varbinds))
 
     def walk(self, oid: str) -> list[tuple[str, Value]]:
         """Walk an OID subtree. Returns a list (not an iterator)."""
