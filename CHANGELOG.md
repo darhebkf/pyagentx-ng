@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-04-09
+
+### Added
+
+- **`Manager.set_many(*varbinds)`** — Set multiple OID/value pairs in a single SNMP SET PDU for atomic multi-varbind operations (e.g., USM user creation with createAndGo)
+- **`SyncManager.set_many(*varbinds)`** — Blocking wrapper for `set_many`
+
+### Changed
+
+- **`Manager.get_many(..., raise_exceptions=True)`** — New `raise_exceptions` parameter. When `False`, returns `Value.NoSuchObject()` / `Value.NoSuchInstance()` / `Value.EndOfMibView()` as values instead of raising, enabling per-varbind exception handling in polling scenarios
+- **`SyncManager.get_many(..., raise_exceptions=True)`** — Matching parameter on sync wrapper
+- `Manager.set()` now delegates to `set_many()` internally (no behavior change)
+
 ## [1.4.0] - 2026-02-25
 
 ### Added
