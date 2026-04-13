@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented here.
 
+## [1.6.0] - 2026-04-13
+
+### Added
+
+- **`Value.__int__()`** — Convert numeric SNMP values (Integer, Counter32, Gauge32, TimeTicks, Counter64) to Python `int`
+- **`Value.__float__()`** — Convert numeric SNMP values to Python `float`
+- **`Value.__bytes__()`** — Convert OctetString and Opaque values to Python `bytes`
+- **`Value.__bool__()`** — `False` for Null/NoSuchObject/NoSuchInstance/EndOfMibView, `True` otherwise
+- **`Value.__hash__()`** — Makes Value hashable (usable in sets and as dict keys)
+
 ## [1.5.0] - 2026-04-09
 
 ### Added

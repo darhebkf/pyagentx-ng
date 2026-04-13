@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-04-13
+
+### Added
+
+- **`Value.__int__()`** — Convert numeric SNMP values (Integer, Counter32, Gauge32, TimeTicks, Counter64) to Python `int`. Raises `TypeError` for non-numeric types.
+- **`Value.__float__()`** — Convert numeric SNMP values to Python `float`. Raises `TypeError` for non-numeric types.
+- **`Value.__bytes__()`** — Convert OctetString and Opaque values to Python `bytes`. Raises `TypeError` for other types.
+- **`Value.__bool__()`** — Returns `False` for Null, NoSuchObject, NoSuchInstance, EndOfMibView; `True` for all other values.
+- **`Value.__hash__()`** — Makes Value hashable, usable in sets and as dict keys.
+
 ## [1.5.0] - 2026-04-09
 
 ### Added

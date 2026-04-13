@@ -228,6 +228,13 @@ val = Value.OctetString(b"hello")
 val = Value.Counter64(9999999999)
 val = Value.IpAddress(192, 168, 1, 1)
 
+# Python conversions (v1.6.0+)
+int(Value.Integer(42))         # 42
+float(Value.Counter32(100))    # 100.0
+bytes(Value.OctetString(b"x")) # b"x"
+bool(Value.NoSuchObject())     # False
+{Value.Integer(1)}             # hashable, usable in sets
+
 # Variable bindings
 vb = VarBind(oid, val)
 ```
