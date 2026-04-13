@@ -136,6 +136,75 @@ impl Value {
         self == other
     }
 
+    fn __hash__(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        std::mem::discriminant(self).hash(&mut hasher);
+        match self {
+            Value::Integer(v) => v.hash(&mut hasher),
+            Value::OctetString(v) => v.hash(&mut hasher),
+            Value::Counter32(v) => v.hash(&mut hasher),
+            Value::Gauge32(v) => v.hash(&mut hasher),
+            Value::TimeTicks(v) => v.hash(&mut hasher),
+            Value::Counter64(v) => v.hash(&mut hasher),
+            Value::ObjectIdentifier(o) => o.to_string().hash(&mut hasher),
+            Value::IpAddress(a, b, c, d) => {
+                a.hash(&mut hasher);
+                b.hash(&mut hasher);
+                c.hash(&mut hasher);
+                d.hash(&mut hasher);
+            }
+            Value::Opaque(v) => v.hash(&mut hasher),
+            Value::Null()
+            | Value::NoSuchObject()
+            | Value::NoSuchInstance()
+            | Value::EndOfMibView() => {}
+        }
+        hasher.finish()
+    }
+
+    fn __int__(&self) -> PyResult<i64> {
+        match self {
+            Value::Integer(v) => Ok(*v as i64),
+            Value::Counter32(v) | Value::Gauge32(v) | Value::TimeTicks(v) => Ok(*v as i64),
+            Value::Counter64(v) => Ok(*v as i64),
+            _ => Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                "cannot convert {} to int",
+                self.type_name()
+            ))),
+        }
+    }
+
+    fn __float__(&self) -> PyResult<f64> {
+        match self {
+            Value::Integer(v) => Ok(*v as f64),
+            Value::Counter32(v) | Value::Gauge32(v) | Value::TimeTicks(v) => Ok(*v as f64),
+            Value::Counter64(v) => Ok(*v as f64),
+            _ => Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                "cannot convert {} to float",
+                self.type_name()
+            ))),
+        }
+    }
+
+    fn __bytes__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        match self {
+            Value::OctetString(v) => Ok(pyo3::types::PyBytes::new(py, v)),
+            Value::Opaque(v) => Ok(pyo3::types::PyBytes::new(py, v)),
+            _ => Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                "cannot convert {} to bytes",
+                self.type_name()
+            ))),
+        }
+    }
+
+    fn __bool__(&self) -> bool {
+        !matches!(
+            self,
+            Value::Null() | Value::NoSuchObject() | Value::NoSuchInstance() | Value::EndOfMibView()
+        )
+    }
+
     fn __str__(&self) -> String {
         self.to_string()
     }
