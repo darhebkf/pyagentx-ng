@@ -1,0 +1,7 @@
+target/
+.venv/
+.git/
+docs/node_modules/
+docs/.next/
+**/__pycache__/
+*.so

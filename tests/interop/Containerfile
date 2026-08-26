@@ -1,0 +1,22 @@
+FROM docker.io/library/debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        snmp snmpd libsnmp-dev \
+        python3 python3-venv python3-dev \
+        curl build-essential pkg-config ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+ENV PATH=/root/.cargo/bin:/venv/bin:$PATH
+
+RUN python3 -m venv /venv && pip install --no-cache-dir maturin pytest pytest-asyncio
+
+WORKDIR /src
+COPY . /src
+
+RUN maturin build --release --out /wheels && pip install --no-cache-dir /wheels/*.whl
+
+RUN mkdir -p /var/agentx /var/lib/snmp
+COPY tests/interop/snmpd.conf /etc/snmp/snmpd.conf
+
+CMD ["pytest", "-q", "tests/interop", "-p", "no:cacheprovider"]
