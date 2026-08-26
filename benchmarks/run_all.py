@@ -6,7 +6,6 @@ import json
 from datetime import datetime
 
 
-
 async def main():
     """Run all benchmarks and generate report."""
     try:
