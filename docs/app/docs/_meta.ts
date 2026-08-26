@@ -6,6 +6,8 @@ export default {
   "getting-started": "Getting Started",
   agent: "Agent",
   manager: "Manager",
+  mib: "MIB",
+  asn1: "ASN.1 & BER",
   changelog: "Changelog",
   __: {
     type: "separator",

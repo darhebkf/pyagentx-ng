@@ -4,6 +4,49 @@ import { Tabs, Callout } from 'nextra/components'
 
 Diagnose and fix common SNMP issues.
 
+## Is the device down, or is the object missing?
+
+Both raise `SnmpError`, but they mean opposite things: a device that answers "no such object" is online. Branch on `unreachable` rather than on the exception class.
+
+```python
+from snmpkit.manager import Manager, SnmpError
+
+try:
+    async with Manager(host, community="public") as m:
+        value = await m.get("sysUpTime.0")
+except SnmpError as e:
+    if e.unreachable:
+        mark_device_offline(host)   # never answered
+    else:
+        mark_object_missing(host)   # answered, object is not there
+```
+
+| Exception | `unreachable` | Meaning |
+|-----------|---------------|---------|
+| `TimeoutError` | `True` | No response within the timeout, after all retries |
+| `UnreachableError` | `True` | DNS failure, connection refused, or no route |
+| `NoSuchObjectError` | `False` | Device answered: the object does not exist |
+| `NoSuchInstanceError` | `False` | Device answered: the instance does not exist |
+| `EndOfMibViewError` | `False` | Device answered: end of the MIB view |
+| `GenericError` | `False` | Device answered with an error-status |
+| `AuthenticationError` | `False` | SNMPv3 key or protocol mismatch; the device answered. Sets `auth_failed=True` |
+
+Every transport failure is converted at the boundary, so a bad hostname raises `UnreachableError` rather than leaking `socket.gaierror`. Catching `SnmpError` is enough.
+
+Bad SNMPv3 credentials are a third case: the device is reachable, so `unreachable` is `False`, but no data can be collected. Branch on `auth_failed` as well, or such a device looks healthy while reporting nothing.
+
+```python
+except SnmpError as e:
+    if e.unreachable:
+        mark_device_offline(host)
+    elif e.auth_failed:
+        mark_credentials_invalid(host)
+    else:
+        mark_object_missing(host)
+```
+
+When the OS can tell us the target is unreachable — ICMP port-unreachable from a closed port, for example — the request fails immediately instead of waiting out `timeout x retries`. A host that is simply silent still takes the full budget, because there is nothing to shortcut.
+
 ## Common Errors
 
 ### TimeoutError

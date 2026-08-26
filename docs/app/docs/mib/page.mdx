@@ -1,0 +1,196 @@
+# MIB
+
+snmpkit resolves MIB files into a tree of named objects, so an object can be addressed as `sysUpTime` rather than `1.3.6.1.2.1.1.3`.
+
+This is the MIB *definition language* (RFC 2578, RFC 2579, RFC 1155/1212), not the ASN.1/BER wire encoding.
+
+## Quickstart
+
+```python
+from snmpkit.mib import MibTree
+
+tree = MibTree()
+tree.load_dir("/usr/share/snmp/mibs")
+
+node = tree.lookup("sysUpTime")
+print(node.oid)          # 1.3.6.1.2.1.1.3
+print(node.base_type)    # TimeTicks
+print(node.description)  # The time (in hundredths of a second) since ...
+
+# The other direction
+print(tree.lookup("1.3.6.1.2.1.1.3").name)   # sysUpTime
+```
+
+## Loading
+
+| Method | Purpose |
+|--------|---------|
+| `load_file(path)` | Parse one file |
+| `load_dir(path, recursive=True)` | Parse every MIB under a directory |
+| `load_str(text, origin="<string>")` | Parse MIB text already in memory |
+
+Each returns the number of modules it parsed. A file may hold more than one module, and files that are not MIBs are skipped.
+
+```python
+tree = MibTree()
+tree.load_dir("/usr/share/snmp/mibs")     # standard MIBs
+tree.load_dir("./vendor-mibs")            # your device's MIBs
+print(tree.modules)                       # ['SNMPv2-SMI', 'IF-MIB', ...]
+```
+
+Load a module's dependencies too: a MIB importing `DisplayString` needs `SNMPv2-TC` present for that type to resolve.
+
+## Looking things up
+
+`lookup()` takes a symbolic name, a `MODULE::name` qualifier, or a numeric OID with or without a leading dot. It returns `None` when nothing matches.
+
+```python
+tree.lookup("ifDescr")
+tree.lookup("IF-MIB::ifDescr")
+tree.lookup(".1.3.6.1.2.1.2.2.1.2")
+```
+
+Subscripting is the raising form:
+
+```python
+node = tree["ifDescr"]        # KeyError if unknown
+"ifDescr" in tree             # True
+len(tree)                     # number of resolved nodes
+```
+
+`translate()` names a numeric OID and keeps any instance suffix:
+
+```python
+tree.translate(".1.3.6.1.2.1.2.2.1.2.3")   # 'IF-MIB::ifDescr.3'
+tree.nearest(".1.3.6.1.2.1.2.2.1.2.3")     # the ifDescr node itself
+```
+
+`nearest()` returns the node itself rather than its name.
+
+## What a node tells you
+
+```python
+node = tree["ifDescr"]
+
+node.name          # 'ifDescr'
+node.module        # 'IF-MIB'
+node.oid           # '1.3.6.1.2.1.2.2.1.2'
+node.numeric_oid   # [1, 3, 6, 1, 2, 1, 2, 2, 1, 2]
+node.kind          # 'column'
+node.syntax        # 'DisplayString'   — the type as the MIB wrote it
+node.base_type     # 'OCTET STRING'    — what it resolves to
+node.max_access    # 'read-only'
+node.status        # 'current'
+node.units         # None
+node.description   # 'A textual string containing information about ...'
+```
+
+`kind` is one of `node`, `scalar`, `table`, `row`, `column` or `notification`.
+
+## Enumerations
+
+Enumeration labels survive resolution, including through a textual convention defined in another module.
+
+```python
+status = tree["ifAdminStatus"]
+status.enums              # {'up': 1, 'down': 2, 'testing': 3}
+status.enum_name(1)       # 'up'
+status.enum_value("down") # 2
+```
+
+## Formatting values
+
+`format()` renders a value per its MIB definition: enumerated integers become their label, `BITS` become the labels of the bits that are set, and anything with a `DISPLAY-HINT` is formatted per RFC 2579 §3.1.
+
+```python
+tree["ifAdminStatus"].format(1)                       # 'up'
+tree["ifPhysAddress"].format(b"\x00\x1a\x2b\x3c\x4d\x5e")
+                                                      # '00:1a:2b:3c:4d:5e'
+tree["sysDescr"].format(b"Linux router 6.6.0")        # 'Linux router 6.6.0'
+```
+
+It accepts an `int`, `bytes`, `str`, or a `Value`. Giving the tree to a `Manager` skips the lookup — see [MIB Support in the Manager](/docs/manager/mibs):
+
+```python
+from snmpkit.manager import Manager
+
+async with Manager("192.0.2.1", community="public", mib=tree) as m:
+    raw = await m.get("ifAdminStatus.1")
+    print(m.format("ifAdminStatus.1", raw))   # 'up'
+```
+
+The hint itself is on `node.display_hint`.
+
+<sub>RFC 2579 §3.1 omits leading zeros for the *integer* formats, so `x` on an INTEGER renders unpadded. It states no padding rule for the OCTET STRING octet-format, so snmpkit pads one pair per octet there (`00:0c:29:...`) where Net-SNMP does not (`0:c:29:...`).</sub>
+
+## Tables
+
+A `SEQUENCE OF` object is a conceptual table (RFC 2578 §7.1.12). The table, its row, its columns and the row's `INDEX` are all resolved.
+
+```python
+table = tree["ifTable"]
+table.is_table                      # True
+table.row_type                      # 'IfEntry'
+
+row = tree["ifEntry"]
+row.index                           # ['ifIndex']
+row.implied                         # False — RFC 2578 §7.7
+
+[c.name for c in table.columns]     # ['ifIndex', 'ifDescr', 'ifType', ...]
+```
+
+A row that uses `AUGMENTS` inherits the index of the row it augments:
+
+```python
+tree["ifXEntry"].augments           # 'ifEntry'
+tree["ifXEntry"].index              # ['ifIndex']
+```
+
+## Walking the tree
+
+```python
+tree.roots                          # [ccitt, iso, joint-iso-ccitt]
+tree["ifEntry"].parent.name         # 'ifTable'
+tree.children("ifTable")            # [ifEntry]
+
+for node in tree.walk("ifTable"):   # depth-first, in OID order
+    print(node.oid, node.name)
+```
+
+`walk()` with no argument covers the whole tree.
+
+## Diagnostics
+
+A definition that cannot be parsed is skipped and recorded rather than failing the module.
+
+```python
+tree = MibTree()
+tree.load_dir("/usr/share/snmp/mibs")
+
+for line in tree.diagnostics:
+    print(line)
+# IF-MIB-EXT:412: sensorTemp: unknown access 'read-sideways'
+```
+
+A non-empty list is normal. Loading a large MIB directory mostly reports duplicate symbols: RFC1213-MIB redefines much of SNMPv2-MIB and IF-MIB, and the first definition wins.
+
+## Supported syntax
+
+| Construct | Support |
+|-----------|---------|
+| `OBJECT-TYPE`, `OBJECT IDENTIFIER` | Full |
+| `MODULE-IDENTITY`, `OBJECT-IDENTITY` | Full |
+| `TEXTUAL-CONVENTION`, `DISPLAY-HINT` | Full, including chains through several modules |
+| `IMPORTS` | Full, resolved across every loaded module |
+| Enumerations, `BITS` | Full |
+| `SEQUENCE OF` tables, `INDEX`, `IMPLIED`, `AUGMENTS` | Full |
+| `NOTIFICATION-TYPE` | Recorded with its `OBJECTS` list |
+| SMIv1 `ACCESS`, `STATUS mandatory`, `Counter`, `Gauge` | Full |
+| SMIv1 `TRAP-TYPE` | Mapped to a notification OID per RFC 2576 §3.1 |
+| `MODULE-COMPLIANCE`, `OBJECT-GROUP`, `AGENT-CAPABILITIES` | Parsed and discarded — nothing consumes them |
+| MIB writing or code generation | Not supported |
+
+## Next Steps
+
+- [MIB Support in the Manager](/docs/manager/mibs) — querying a device by name
+- [Tables](/docs/manager/tables) — walking a conceptual table

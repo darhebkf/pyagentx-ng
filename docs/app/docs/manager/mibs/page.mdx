@@ -1,29 +1,99 @@
-import { Callout } from 'nextra/components'
-
 # MIB Support
 
-<Callout type="warning">
-MIB support is planned for v1.4.0. This page describes the planned API.
-</Callout>
+Query a device by name instead of by number.
 
-Work with MIBs for human-readable OID names.
+Give the `Manager` a [`MibTree`](/docs/mib) and every method that takes an OID will also take a MIB name. Numeric OIDs are also possible.
 
-## Overview
+```python
+from snmpkit.manager import Manager
+from snmpkit.mib import MibTree
 
-MIBs (Management Information Bases) define the structure and meaning of SNMP data. Instead of numeric OIDs like `1.3.6.1.2.1.1.1.0`, you can use symbolic names like `SNMPv2-MIB::sysDescr.0`.
+tree = MibTree()
+tree.load_dir("/usr/share/snmp/mibs")
 
-MIB support is coming in v1.4.0 and will include:
+async with Manager("192.0.2.1", community="public", mib=tree) as m:
+    print(await m.get("sysDescr.0"))
+    print(await m.get("IF-MIB::ifNumber.0"))
 
-- **Name resolution** — Translate symbolic OID names to numeric and vice versa
-- **Built-in standard MIBs** — SNMPv2-MIB, IF-MIB, IP-MIB, TCP-MIB, UDP-MIB, HOST-RESOURCES-MIB
-- **Custom MIB loading** — Load vendor MIBs from files
-- **Value formatting** — Display enumerations, MAC addresses, timeticks in human-readable format
+    async for oid, value in m.walk("ifDescr"):
+        print(m.translate(oid), "=", value)
 
-## Current Workaround
+# IF-MIB::ifDescr.1 = lo
+# IF-MIB::ifDescr.2 = eth0
+```
 
-Until MIB support is available, use numeric OIDs directly. Here are the most common ones:
+Load the tree once at startup and keep it.
 
-### System MIB (SNMPv2-MIB)
+## What accepts a name
+
+Every OID argument: `get`, `get_many`, `get_next`, `get_bulk`, `set`, `set_many`, `walk`, `bulk_walk`, `get_table`, `send_trap` and `send_inform`. Names may be bare (`ifDescr`), module-qualified (`IF-MIB::ifDescr`), or carry an instance suffix (`sysUpTime.0`).
+
+A name that is not in the loaded MIBs raises `ValueError`.
+
+Three helpers are available directly on the `Manager`:
+
+| Method | Purpose |
+|--------|---------|
+| `resolve(oid)` | Name to numeric OID. Numeric input passes through. |
+| `translate(oid)` | Numeric OID to `MODULE::name.instance`. |
+| `format(oid, value)` | Render a value per its enumeration or `DISPLAY-HINT`. |
+
+`SyncManager` takes the same `mib=` argument and has the same three helpers.
+
+## Formatting what comes back
+
+`format()` applies the object's enumeration or `DISPLAY-HINT`.
+
+```python
+async with Manager("192.0.2.1", community="public", mib=tree) as m:
+    status = await m.get("ifAdminStatus.1")
+    print(m.format("ifAdminStatus.1", status))   # 'up'
+
+    mac = await m.get("ifPhysAddress.1")
+    print(m.format("ifPhysAddress.1", mac))      # '00:1a:2b:3c:4d:5e'
+```
+
+## Naming what a walk returns
+
+`translate()` names an OID and keeps its instance suffix.
+
+```python
+async with Manager("192.0.2.1", community="public") as m:
+    async for oid, value in m.walk(tree["ifDescr"].oid):
+        print(tree.translate(oid), "=", value)
+
+# IF-MIB::ifDescr.1 = lo
+# IF-MIB::ifDescr.2 = eth0
+```
+
+## Naming a table's columns
+
+`get_table()` takes the row OID and keys each row by column number. The MIB tree
+maps those numbers back to names.
+
+```python
+entry = tree["ifEntry"]
+columns = {c.numeric_oid[-1]: c for c in entry.columns}
+
+async with Manager("192.0.2.1", community="public") as m:
+    rows = await m.get_table(entry.oid)
+
+for index, row in sorted(rows.items()):
+    for number, value in sorted(row.items()):
+        column = columns.get(number)
+        if column is not None:
+            print(index, column.name, column.format(value))
+
+# (1,) ifDescr lo
+# (1,) ifAdminStatus up
+# (2,) ifDescr eth0
+```
+
+## Common OIDs
+
+If you would rather not load MIBs at all, these are the ones you are most likely to want.
+
+### System (SNMPv2-MIB)
 
 | Name | OID |
 |------|-----|
@@ -34,7 +104,7 @@ Until MIB support is available, use numeric OIDs directly. Here are the most com
 | sysName | `1.3.6.1.2.1.1.5.0` |
 | sysLocation | `1.3.6.1.2.1.1.6.0` |
 
-### Interface MIB (IF-MIB)
+### Interfaces (IF-MIB::ifTable)
 
 | Name | OID (table entry) |
 |------|-----|
@@ -49,7 +119,7 @@ Until MIB support is available, use numeric OIDs directly. Here are the most com
 | ifInOctets | `1.3.6.1.2.1.2.2.1.10` |
 | ifOutOctets | `1.3.6.1.2.1.2.2.1.16` |
 
-### 64-bit Counters (IF-MIB::ifXTable)
+### 64-bit counters (IF-MIB::ifXTable)
 
 | Name | OID (table entry) |
 |------|-----|
@@ -61,5 +131,6 @@ Until MIB support is available, use numeric OIDs directly. Here are the most com
 
 ## Next Steps
 
-- [Tables](/docs/manager/tables) — Query tables with numeric OIDs
-- [Operations](/docs/manager/operations) — Full API reference
+- [MIB](/docs/mib) — the full MIB tree API
+- [Tables](/docs/manager/tables) — querying tables
+- [Operations](/docs/manager/operations) — full API reference

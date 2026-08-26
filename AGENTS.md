@@ -13,7 +13,8 @@ snmpkit is a cross-platform SNMP toolkit aiming to:
 Current features:
 - **SNMP Manager** (RFC 3411+) - Query SNMP devices (GET, SET, WALK, BULK) - COMPLETE
 - **SNMPv3 Security** (RFC 3414, 3826, 7860) - USM auth/priv crypto - COMPLETE
-- **AgentX subagent** (RFC 2741) - Extend SNMP agents with custom data - COMPLETE
+- **AgentX subagent** (RFC 2741) - Extend SNMP agents with custom data - COMPLETE, verified against a live net-snmp master
+- **MIB parsing** (RFC 2578/2579/2580, SMIv1) - Turn MIB files into a named OID tree - COMPLETE
 
 ## Architecture
 
@@ -55,7 +56,8 @@ Users never need to import uvloop directly - snmpkit handles it.
 | Core | Rust 2024 edition |
 | Bindings | PyO3 0.27 |
 | Build | maturin |
-| Python | 3.14+ (GIL-free) |
+| Dependencies | PDM (resolves via uv), `pdm.lock` |
+| Python | 3.11+ (CI 3.11-3.14, dev pin 3.14) |
 | Async | asyncio + uvloop |
 | Async runtime | tokio (CLI/standalone) |
 | Docs | Nextra + Bun + Biome |
@@ -66,9 +68,10 @@ Users never need to import uvloop directly - snmpkit handles it.
 
 ```
 snmpkit/
-├── core/          # Rust bindings (Oid, Value, VarBind, SNMP encode/decode)
+├── core/          # Rust bindings (Oid, Value, VarBind, SNMP encode/decode, MIB tree)
 ├── agent/         # AgentX subagent - COMPLETE
-└── manager/       # SNMP manager - COMPLETE
+├── manager/       # SNMP manager - COMPLETE
+└── mib/           # MIB parser - COMPLETE
 ```
 
 Import patterns:
@@ -76,6 +79,7 @@ Import patterns:
 # High-level API (most users)
 from snmpkit.manager import Manager
 from snmpkit.agent import Agent, Updater, SetHandler
+from snmpkit.mib import MibTree
 
 # Low-level Rust bindings (advanced)
 from snmpkit.core import Oid, Value, VarBind
@@ -92,6 +96,22 @@ snmpkit/
 │   ├── types/              # SNMP value types
 │   ├── asn1/               # ASN.1/BER encoding
 │   ├── agentx/             # AgentX PDUs (RFC 2741)
+│   ├── mib/                # MIB definition language (RFC 2578/2579, SMIv1)
+│   │   ├── mod.rs          # Module entry, AST types, diagnostics
+│   │   ├── lexer.rs        # Tokenizer
+│   │   ├── display.rs      # DISPLAY-HINT formatting
+│   │   ├── parser/         # Recursive descent -> AST
+│   │   │   ├── mod.rs      # Module framing, IMPORTS, dispatch
+│   │   │   ├── definitions.rs  # OBJECT-TYPE, MODULE-IDENTITY, notifications
+│   │   │   └── syntax/     # SYNTAX clauses and ::= values
+│   │   │       ├── mod.rs  # Types, enumerations, subtype constraints
+│   │   │       └── values.rs   # OID values, INDEX, DEFVAL
+│   │   ├── resolver/       # IMPORTS, type chains, OID tree assembly
+│   │   │   ├── mod.rs      # Registry and the resolved node types
+│   │   │   └── build.rs    # OID resolution, classification, AUGMENTS
+│   │   └── bindings/       # PyO3 bindings
+│   │       ├── mod.rs      # MibTree
+│   │       └── node.rs     # MibNode
 │   └── snmp/               # SNMP PDUs (RFC 3411+)
 │       ├── pdu.rs          # PDU types
 │       ├── message.rs      # v1/v2c messages
@@ -105,7 +125,10 @@ snmpkit/
 │   ├── __init__.py
 │   ├── core/               # Rust bindings (built by maturin)
 │   ├── agent/              # Python AgentX API
-│   └── manager/            # Python Manager API (v1/v2c/v3)
+│   ├── manager/            # Python Manager API (v1/v2c/v3)
+│   └── mib/                # Python MIB API (MibTree, MibNode)
+├── tests/mibs/             # Vendored RFC MIB fixtures (smiv2/, smiv1/, broken/)
+├── tests/interop/          # Container interop suite vs a real net-snmp agent
 ├── docs/                   # TypeScript/Nextra docs
 │   ├── app/
 │   └── package.json
@@ -121,7 +144,7 @@ Linux/macOS/Unix only. Requires [kyle](https://github.com/achmedius/kyle) task r
 **Important**: Always use `kyle` for all development tasks. Do NOT run `cargo`, `pytest`, `npm`, etc. directly.
 
 ```bash
-# First time setup (installs Rust, uv, bun, maturin)
+# First time setup (installs Rust, uv, PDM, bun)
 kyle setup
 
 # Or just install project deps if tools are present
@@ -129,6 +152,7 @@ kyle setup:deps
 
 kyle dev          # Build and install
 kyle test         # Run all tests
+kyle test:interop # Interop vs a real net-snmp agent (podman)
 kyle format       # Format all code
 kyle lint         # Lint all code
 kyle docs:dev     # Start docs server
@@ -140,6 +164,9 @@ kyle docs:dev     # Start docs server
 - RFC 3411-3418: SNMP Architecture
 - RFC 3826: AES for SNMPv3
 - RFC 7860: HMAC-SHA-2 for SNMPv3
+- RFC 2578-2580: SMIv2 (MIB structure, textual conventions, conformance)
+- RFC 1155/1212/1215: SMIv1, for vendor MIBs that were never updated
+- RFC 2576: Coexistence, used for the SMIv1 TRAP-TYPE to notification mapping
 
 ## Code Quality
 
@@ -156,7 +183,7 @@ kyle docs:dev     # Start docs server
 
 ### Python Style
 
-- **Version**: 3.14+ (GIL-free threading)
+- **Version**: 3.11+ (CI 3.11-3.14, dev pin 3.14)
 - **Formatting**: `ruff format`
 - **Linting**: `ruff check` (E, F, I rules)
 - **Type hints**: Full coverage with `pyright` strict mode
@@ -182,22 +209,16 @@ kyle docs:dev     # Start docs server
 **Important**: Update documentation alongside code changes.
 
 When modifying code:
-1. Update `guide.local.md` with implementation details
-2. Update `docs/public/llms.txt` with user-facing API changes
-3. Update this file (`llms.txt`) with architecture/structure changes
-
-Files to keep in sync:
-- `guide.local.md` - Detailed implementation guide
-- `todo.local.md` - Architecture decisions and roadmap
-- `roadmap.local.txt` - Version roadmap
-- `llms.txt` (root) - Contributor overview
-- `docs/public/llms.txt` - User documentation
+1. Update `docs/app/docs/**` with user-facing API changes
+2. Update this file (`AGENTS.md`) with architecture/structure changes
+3. Update `CHANGELOG.md` with anything version-visible
 
 ## Version Roadmap
 
 - **v1.0.1** - AgentX subagent (RELEASED)
 - **v1.1.0** - Python Manager API (RELEASED)
 - **v1.2.0** - SNMPv3 Security (USM crypto) (COMPLETE)
+- **v1.7.0** - MIB parsing (SMIv2 + SMIv1) (COMPLETE)
 - **v2.0.0** - Pure Rust SNMP Stack
 - **v2.1.0** - CLI Tools
 - **v3.0.0** - Multi-Language Bindings

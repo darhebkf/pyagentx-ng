@@ -1,0 +1,116 @@
+# ASN.1 and BER
+
+snmpkit uses ASN.1 in two unrelated places: BER, the binary encoding of SNMP packets, and SMI.
+
+| | ASN.1 / BER | SMI |
+|---|---|---|
+| What it is | The binary encoding of a packet on the wire | A text language describing what objects exist |
+| Input | Bytes off a socket | A `.mib` file |
+| Specified by | ITU-T X.680 (syntax), X.690 (BER) | RFC 2578, RFC 2579, RFC 2580 |
+| In snmpkit | `src/asn1/` | `src/mib/` |
+| Public API | None — internal to encode/decode | [`snmpkit.mib`](/docs/mib) |
+
+SMI uses ASN.1 notation: `::=`, `--` comments, `'FF'H` literals, and type names such as `INTEGER` and `OCTET STRING`. A MIB file is never BER-encoded and a packet never contains MIB text; the two modules share no code.
+
+## What BER does
+
+Every value on the wire is a tag, length, value triple. `src/asn1/ber.rs` implements the encoding and the SNMP layer builds PDUs on top of it.
+
+A v2c GetRequest for `sysDescr.0` encodes to 40 bytes:
+
+```python
+from snmpkit.core import Oid, encode_snmp_get_v2c
+
+encode_snmp_get_v2c("public", 1, [Oid("1.3.6.1.2.1.1.1.0")])
+```
+
+```
+30 26                             SEQUENCE, 38 bytes
+   02 01 01                       INTEGER 1              version, v2c
+   04 06 70 75 62 6C 69 63        OCTET STRING           "public"
+   A0 19                          GetRequest, 25 bytes
+      02 01 01                    INTEGER 1              request-id
+      02 01 00                    INTEGER 0              error-status
+      02 01 00                    INTEGER 0              error-index
+      30 0E                       SEQUENCE, 14 bytes     varbind list
+         30 0C                    SEQUENCE, 12 bytes     varbind
+            06 08                 OBJECT IDENTIFIER, 8 bytes
+               2B 06 01 02 01 01 01 00                   1.3.6.1.2.1.1.1.0
+            05 00                 NULL                   unset value
+```
+
+The OID's leading `2B` is 43, which is `40 * 1 + 3` — X.690 §8.19 packs the first two arcs `iso(1).org(3)` into one byte. The remaining sub-identifiers are base-128 with a continuation bit.
+
+## Tags snmpkit encodes
+
+| Tag | Type | Source |
+|-----|------|--------|
+| `0x02` | INTEGER | X.690 universal |
+| `0x04` | OCTET STRING | X.690 universal |
+| `0x05` | NULL | X.690 universal |
+| `0x06` | OBJECT IDENTIFIER | X.690 universal |
+| `0x30` | SEQUENCE | X.690 universal |
+| `0x40` | IpAddress | RFC 2578 §7.1.5 |
+| `0x41` | Counter32 | RFC 2578 §7.1.6 |
+| `0x42` | Gauge32 / Unsigned32 | RFC 2578 §7.1.7 |
+| `0x43` | TimeTicks | RFC 2578 §7.1.8 |
+| `0x44` | Opaque | RFC 2578 §7.1.9 |
+| `0x46` | Counter64 | RFC 2578 §7.1.10 |
+| `0x80` | noSuchObject | RFC 3416 §4.2.1 |
+| `0x81` | noSuchInstance | RFC 3416 §4.2.1 |
+| `0x82` | endOfMibView | RFC 3416 §4.2.1 |
+| `0xA0` | GetRequest | RFC 3416 §3 |
+| `0xA1` | GetNextRequest | RFC 3416 §3 |
+| `0xA2` | Response | RFC 3416 §3 |
+| `0xA3` | SetRequest | RFC 3416 §3 |
+| `0xA5` | GetBulkRequest | RFC 3416 §3 |
+| `0xA6` | InformRequest | RFC 3416 §3 |
+| `0xA7` | SNMPv2-Trap | RFC 3416 §3 |
+
+SNMPv1 traps use `0xA4` (RFC 1157) and are handled separately.
+
+## RFC map
+
+**Wire protocol**
+
+| RFC | Covers |
+|-----|--------|
+| 1157 | SNMPv1, including the v1 Trap-PDU |
+| 3411 | SNMP architecture |
+| 3412 | Message processing and dispatch |
+| 3414 | USM: authentication and privacy |
+| 3416 | Protocol operations, PDU types |
+| 3417 | Transport mappings |
+| 3826 | AES for SNMPv3 |
+| 7860 | HMAC-SHA-2 for SNMPv3 |
+| 2741 | AgentX subagent protocol |
+
+**MIB definition language**
+
+| RFC | Covers |
+|-----|--------|
+| 2578 | SMIv2: `OBJECT-TYPE`, `MODULE-IDENTITY`, base types |
+| 2579 | Textual conventions and `DISPLAY-HINT` |
+| 2580 | Conformance statements |
+| 1155 | SMIv1 structure |
+| 1212 | SMIv1 `OBJECT-TYPE` |
+| 1215 | SMIv1 `TRAP-TYPE` |
+| 2576 | SMIv1 to SMIv2 coexistence |
+
+**Lexical rules SMI inherits**
+
+| Standard | Covers |
+|----------|--------|
+| ITU-T X.680 | ASN.1 notation: identifiers, comments, `'FF'H` literals |
+| ITU-T X.690 | BER, the tag-length-value encoding |
+| ITU-T X.660 | The root OID arcs `ccitt(0)`, `iso(1)`, `joint-iso-ccitt(2)` |
+
+## Implementation notes
+
+- BER length encoding is short-form below 128 bytes, long-form above. Indefinite length is not accepted; SNMP does not use it.
+- The encoder and decoder are hand-written. The only Rust dependencies are `pyo3`, `bitflags`, optional `rayon`, and the SNMPv3 crypto primitives.
+
+## Next Steps
+
+- [MIB](/docs/mib) — the SMI side, and the public API
+- [Manager](/docs/manager) — where BER encoding is used
