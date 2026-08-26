@@ -6,7 +6,7 @@ import asyncio
 import logging
 import struct
 
-from snmpkit.manager.exceptions import TimeoutError
+from snmpkit.manager.exceptions import TimeoutError, UnreachableError
 
 logger = logging.getLogger("snmpkit.manager")
 
@@ -36,7 +36,10 @@ class TcpTransport:
 
     async def connect(self) -> None:
         """Open TCP connection to target."""
-        self._reader, self._writer = await asyncio.open_connection(self.host, self.port)
+        try:
+            self._reader, self._writer = await asyncio.open_connection(self.host, self.port)
+        except OSError as e:
+            raise UnreachableError(f"{self.host}:{self.port}: {e}") from e
         logger.debug("TCP connected to %s:%d", self.host, self.port)
 
     async def close(self) -> None:

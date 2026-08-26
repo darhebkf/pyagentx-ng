@@ -4,7 +4,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from snmpkit.manager.exceptions import TimeoutError
+from snmpkit.manager.exceptions import TimeoutError, UnreachableError
 from snmpkit.manager.transport import UdpTransport, _UdpProtocol
 
 
@@ -174,3 +174,73 @@ class TestUdpProtocol:
 
         with pytest.raises(RuntimeError, match="No response"):
             await proto.wait_response()
+
+
+class TestUnreachableClassification:
+    """Tests that transport failures land in the SnmpError hierarchy."""
+
+    async def test_dns_failure_raises_unreachable(self):
+        """A bad hostname must not escape as socket.gaierror."""
+        from snmpkit.manager import Manager, SnmpError
+
+        with pytest.raises(SnmpError) as exc:
+            async with Manager("no-such-host.invalid", timeout=0.5, retries=1):
+                pass
+        assert exc.value.unreachable is True
+
+    async def test_blackhole_host_raises_unreachable(self):
+        """A host that never answers times out and reports unreachable."""
+        from snmpkit.manager import Manager, SnmpError
+
+        async with Manager("192.0.2.1", timeout=0.5, retries=1) as mgr:
+            with pytest.raises(SnmpError) as exc:
+                await mgr.get("1.3.6.1.2.1.1.1.0")
+        assert exc.value.unreachable is True
+
+
+class TestIcmpErrorFailsFast:
+    """Tests that an ICMP error ends the attempt instead of waiting out the timeout."""
+
+    async def test_error_received_wakes_the_waiter(self):
+        """error_received raises from wait_response rather than blocking."""
+        protocol = _UdpProtocol()
+        protocol.clear()
+        protocol.error_received(ConnectionRefusedError(111, "Connection refused"))
+
+        with pytest.raises(OSError):
+            await asyncio.wait_for(protocol.wait_response(), timeout=0.1)
+
+    async def test_clear_discards_a_previous_error(self):
+        """A stale ICMP error must not poison the next attempt."""
+        protocol = _UdpProtocol()
+        protocol.error_received(ConnectionRefusedError(111, "Connection refused"))
+        protocol.clear()
+        protocol.datagram_received(b"payload", ("127.0.0.1", 161))
+
+        assert await asyncio.wait_for(protocol.wait_response(), timeout=0.1) == b"payload"
+
+    async def test_send_request_raises_unreachable_without_burning_the_timeout(self):
+        """A refused port reports UnreachableError, not TimeoutError."""
+        # A 10s timeout over 3 retries would be 30s if the ICMP error were ignored.
+        transport = UdpTransport("192.168.1.1", 161, 10.0, 3)
+        transport.transport = MagicMock()
+        transport.protocol = _UdpProtocol()
+
+        def refuse(_data):
+            transport.protocol.error_received(ConnectionRefusedError(111, "Connection refused"))
+
+        transport.transport.sendto.side_effect = refuse
+
+        with pytest.raises(UnreachableError, match="Connection refused"):
+            await asyncio.wait_for(transport.send_request(b"req"), timeout=2.0)
+
+        assert transport.transport.sendto.call_count == 3
+
+    async def test_a_silent_host_still_times_out(self):
+        """With no ICMP error there is nothing to shortcut, so it still times out."""
+        transport = UdpTransport("192.168.1.1", 161, 0.01, 2)
+        transport.transport = MagicMock()
+        transport.protocol = _UdpProtocol()
+
+        with pytest.raises(TimeoutError):
+            await transport.send_request(b"req")

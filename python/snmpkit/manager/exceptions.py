@@ -4,9 +4,32 @@
 class SnmpError(Exception):
     """Base SNMP error."""
 
+    unreachable: bool = False
+
+    # Device is reachable, but credentials are wrong.
+    auth_failed: bool = False
+
 
 class TimeoutError(SnmpError):
     """Request timed out."""
+
+    unreachable = True
+
+
+class UnreachableError(SnmpError):
+    """Device could not be reached: DNS failure, refused, or no route."""
+
+    unreachable = True
+
+
+class AuthenticationError(SnmpError):
+    """SNMPv3 authentication or decryption failed.
+
+    Not unreachable: the device answered, the response just could not be
+    verified or decrypted with the supplied credentials.
+    """
+
+    auth_failed = True
 
 
 class NoSuchObjectError(SnmpError):

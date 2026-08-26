@@ -34,6 +34,7 @@ from snmpkit.core import (
     password_to_localized_key,
 )
 from snmpkit.manager.exceptions import (
+    AuthenticationError,
     EndOfMibViewError,
     GenericError,
     NoSuchInstanceError,
@@ -433,7 +434,12 @@ class Manager:
                 kwargs["priv_key"] = self._priv_key
             kwargs["engine_boots"] = self._engine_boots
             kwargs["engine_time"] = self._current_engine_time()
-            return decode_snmp_v3_response(response_data, **kwargs)
+            try:
+                return decode_snmp_v3_response(response_data, **kwargs)
+            except ValueError as e:
+                # The USM layer reports a bad key or a failed decrypt as a
+                # plain ValueError; callers catch SnmpError.
+                raise AuthenticationError(str(e)) from e
         return decode_snmp_response(response_data)
 
     # Operations
