@@ -1,0 +1,62 @@
+BROKEN-MIB DEFINITIONS ::= BEGIN
+
+-- Every definition below is wrong in a different way. The parser has to skip
+-- each one, record a diagnostic, and still produce the good definitions.
+
+IMPORTS
+    OBJECT-TYPE, Integer32, enterprises
+        FROM SNMPv2-SMI;
+
+brokenRoot OBJECT IDENTIFIER ::= { enterprises 99999 }
+
+-- Good: nothing wrong with this one, and it must survive everything after it.
+goodScalarOne OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "A perfectly ordinary object."
+    ::= { brokenRoot 1 }
+
+-- Wrong: an invented macro nobody has ever heard of.
+nonsenseMacro WIDGET-TYPE
+    WIDGETNESS  very
+    STATUS      current
+    ::= { brokenRoot 2 }
+
+-- Wrong: MAX-ACCESS value that is not in RFC 2578 §7.3.
+badAccess OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-sideways
+    STATUS      current
+    DESCRIPTION "The access value is not a real one."
+    ::= { brokenRoot 3 }
+
+-- Wrong: STATUS value that is not in RFC 2578 §7.4.
+badStatus OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-only
+    STATUS      lukewarm
+    DESCRIPTION "The status value is not a real one."
+    ::= { brokenRoot 4 }
+
+-- Wrong: the parent OID was never defined or imported.
+orphan OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Hangs off a parent that does not exist."
+    ::= { neverDefinedAnywhere 1 }
+
+-- Wrong: two definitions that point at each other.
+loopA OBJECT IDENTIFIER ::= { loopB 1 }
+loopB OBJECT IDENTIFIER ::= { loopA 1 }
+
+-- Good: still parsed correctly after all of the above.
+goodScalarTwo OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE (0..255))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION "The last object, and it must come through intact."
+    ::= { brokenRoot 9 }
+
+END

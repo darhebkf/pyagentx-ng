@@ -2,6 +2,7 @@ use pyo3::prelude::*;
 
 pub mod agentx;
 pub mod asn1;
+pub mod mib;
 pub mod oid;
 pub mod snmp;
 pub mod types;
@@ -180,6 +181,10 @@ fn snmpkit_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
         snmp::bindings::encode_snmp_response_v3_secure,
         m
     )?)?;
+
+    // MIB parsing (RFC 2578/2579, SMIv1)
+    m.add_class::<mib::bindings::PyMibTree>()?;
+    m.add_class::<mib::bindings::PyMibNode>()?;
 
     // Generic message decoder
     m.add_class::<snmp::bindings::PySnmpMessage>()?;
