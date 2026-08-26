@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 from typing import Self
 
 from snmpkit.core import (
+    MibTree,
     Oid,
     SnmpVarBind,
     Value,
@@ -44,6 +45,16 @@ from snmpkit.manager.transport import UdpTransport
 logger = logging.getLogger("snmpkit.manager")
 
 
+def _is_numeric_oid(text: str) -> bool:
+    """Whether every dot-separated part is an ASCII decimal number.
+
+    str.isdigit() alone accepts Unicode digits such as "\u00b2", which are not
+    valid sub-identifiers, so the ASCII check is not redundant.
+    """
+    parts = text.lstrip(".").split(".")
+    return all(part.isascii() and part.isdigit() for part in parts)
+
+
 class Manager:
     """SNMP Manager for querying network devices.
 
@@ -74,10 +85,12 @@ class Manager:
         timeout: float = 5.0,
         retries: int = 3,
         transport: str = "udp",
+        mib: MibTree | None = None,
     ) -> None:
         self.host = host
         self.port = port
         self.community = community
+        self.mib = mib
         self.version = version
         self.timeout = timeout
         self.retries = retries
@@ -425,6 +438,68 @@ class Manager:
 
     # Operations
 
+    def resolve(self, oid: str) -> str:
+        """Resolve a MIB name to a numeric OID.
+
+        Args:
+            oid: A MIB name ("sysUpTime.0", "IF-MIB::ifDescr"), or a numeric
+                OID, which is returned unchanged
+
+        Returns:
+            The numeric OID
+
+        Raises:
+            ValueError: If the name is not in the loaded MIBs, or the instance
+                suffix is not numeric
+        """
+        if self.mib is None:
+            return oid
+        name = oid.strip()
+        if not name:
+            raise ValueError("OID cannot be empty")
+        if _is_numeric_oid(name):
+            return oid
+        # "IF-MIB::ifDescr.1" splits into the object and its instance suffix.
+        head, _, instance = name.partition(".")
+        node = self.mib.lookup(head)
+        if node is None:
+            raise ValueError(f"{oid!r} is not in the loaded MIBs")
+        if instance and not _is_numeric_oid(instance):
+            raise ValueError(f"{oid!r}: instance suffix {instance!r} must be numeric")
+        return f"{node.oid}.{instance}" if instance else node.oid
+
+    def translate(self, oid: str) -> str:
+        """Name a numeric OID, keeping any instance suffix.
+
+        Args:
+            oid: Numeric OID to name
+
+        Returns:
+            "MODULE::name.instance", or the input unchanged when no MIB is
+            loaded or nothing matches
+        """
+        if self.mib is None:
+            return oid
+        return self.mib.translate(oid) or oid
+
+    def format(self, oid: str, value: Value) -> str:
+        """Render a value per its MIB definition.
+
+        Applies the object's enumeration or DISPLAY-HINT (RFC 2579 Section 3.1).
+
+        Args:
+            oid: OID or MIB name the value came from
+            value: The value to render
+
+        Returns:
+            The rendered string, or str(value) when no MIB is loaded or the
+            OID is unknown
+        """
+        if self.mib is None:
+            return str(value)
+        node = self.mib.nearest(self.resolve(oid))
+        return node.format(value) if node is not None else str(value)
+
     async def get(self, oid: str) -> Value:
         """Get a single OID value.
 
@@ -456,7 +531,7 @@ class Manager:
         if self.transport is None:
             raise RuntimeError("Not connected")
 
-        oid_objects = [Oid(o) for o in oids]
+        oid_objects = [Oid(self.resolve(o)) for o in oids]
         request_id = self._next_request_id()
 
         request = self._encode_get(oid_objects, request_id)
@@ -485,7 +560,7 @@ class Manager:
         if self.transport is None:
             raise RuntimeError("Not connected")
 
-        oid_obj = Oid(oid)
+        oid_obj = Oid(self.resolve(oid))
         request_id = self._next_request_id()
 
         request = self._encode_getnext([oid_obj], request_id)
@@ -524,7 +599,7 @@ class Manager:
         if self.version == 1:
             raise ValueError("GetBulk not supported in SNMPv1")
 
-        oid_objects = [Oid(o) for o in oids]
+        oid_objects = [Oid(self.resolve(o)) for o in oids]
         request_id = self._next_request_id()
 
         request = self._encode_getbulk(oid_objects, request_id, non_repeaters, max_repetitions)
@@ -563,7 +638,7 @@ class Manager:
             raise ValueError("SET not implemented for SNMPv1")
 
         request_id = self._next_request_id()
-        snmp_varbinds = [SnmpVarBind(Oid(oid), value) for oid, value in varbinds]
+        snmp_varbinds = [SnmpVarBind(Oid(self.resolve(oid)), value) for oid, value in varbinds]
 
         request = self._encode_set(snmp_varbinds, request_id)
         response_data = await self.transport.send_request(request)
@@ -580,6 +655,7 @@ class Manager:
         Yields:
             Tuples of (oid, value) for each OID in the subtree
         """
+        oid = self.resolve(oid)
         root = Oid(oid)
         current = oid
 
@@ -610,6 +686,7 @@ class Manager:
         Yields:
             Tuples of (oid, value) for each OID in the subtree
         """
+        oid = self.resolve(oid)
         root = Oid(oid)
         current = oid
 
@@ -646,10 +723,13 @@ class Manager:
         """Build standard trap varbind list (sysUpTime.0, snmpTrapOID.0, + user varbinds)."""
         result = [
             SnmpVarBind(Oid(self._SYSUPTIME_OID), Value.TimeTicks(uptime or 0)),
-            SnmpVarBind(Oid(self._SNMPTRAPOID_OID), Value.ObjectIdentifier(Oid(trap_oid))),
+            SnmpVarBind(
+                Oid(self._SNMPTRAPOID_OID),
+                Value.ObjectIdentifier(Oid(self.resolve(trap_oid))),
+            ),
         ]
         if varbinds:
-            result.extend(SnmpVarBind(Oid(oid), val) for oid, val in varbinds)
+            result.extend(SnmpVarBind(Oid(self.resolve(oid)), val) for oid, val in varbinds)
         return result
 
     def _encode_trap(self, varbinds: list[SnmpVarBind], request_id: int) -> bytes:
@@ -768,7 +848,7 @@ class Manager:
         Returns:
             Dict mapping index tuples to {column: value} dicts
         """
-        base = Oid(base_oid)
+        base = Oid(self.resolve(base_oid))
         base_parts = base.parts
         base_len = len(base_parts)
         table: dict[tuple[int, ...], dict[int, Value]] = {}

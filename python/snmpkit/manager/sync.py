@@ -8,7 +8,7 @@ from typing import Self
 
 import uvloop
 
-from snmpkit.core import Value
+from snmpkit.core import MibTree, Value
 from snmpkit.manager.manager import Manager
 
 
@@ -42,6 +42,7 @@ class SyncManager:
         timeout: float = 5.0,
         retries: int = 3,
         transport: str = "udp",
+        mib: MibTree | None = None,
     ) -> None:
         self._manager_kwargs = {
             "host": host,
@@ -57,6 +58,7 @@ class SyncManager:
             "timeout": timeout,
             "retries": retries,
             "transport": transport,
+            "mib": mib,
         }
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
@@ -100,6 +102,24 @@ class SyncManager:
         return future.result()
 
     # Operations
+
+    def resolve(self, oid: str) -> str:
+        """Return the numeric OID for a MIB name."""
+        if self._manager is None:
+            raise RuntimeError("Not connected")
+        return self._manager.resolve(oid)
+
+    def translate(self, oid: str) -> str:
+        """Name a numeric OID, keeping any instance suffix."""
+        if self._manager is None:
+            raise RuntimeError("Not connected")
+        return self._manager.translate(oid)
+
+    def format(self, oid: str, value: Value) -> str:
+        """Render a value the way its MIB says it should look."""
+        if self._manager is None:
+            raise RuntimeError("Not connected")
+        return self._manager.format(oid, value)
 
     def get(self, oid: str) -> Value:
         """Get a single OID value."""
