@@ -153,13 +153,85 @@ async for result in poll_many(targets, ["1.3.6.1.2.1.1.1.0"], concurrency=50):
 
 ```python
 from snmpkit.manager.exceptions import (
-    SnmpError,           # Base
-    TimeoutError,        # Request timed out
-    NoSuchObjectError,   # OID doesn't exist
-    NoSuchInstanceError, # Instance doesn't exist
-    EndOfMibViewError,   # End of MIB reached
-    GenericError,        # SNMP error with status code
+    SnmpError,            # Base
+    TimeoutError,         # Request timed out
+    UnreachableError,     # DNS failure, refused, or no route
+    AuthenticationError,  # SNMPv3 key or protocol mismatch
+    NoSuchObjectError,    # OID doesn't exist
+    NoSuchInstanceError,  # Instance doesn't exist
+    EndOfMibViewError,    # End of MIB reached
+    GenericError,         # SNMP error with status code
 )
+```
+
+Every exception carries two flags (v1.7.0+). Branch on these rather than on the
+exception class:
+
+```python
+except SnmpError as e:
+    if e.unreachable:      # device never answered
+        mark_offline(host)
+    elif e.auth_failed:    # device answered, credentials rejected
+        mark_credentials_invalid(host)
+    else:                  # device answered, object is missing
+        mark_object_missing(host)
+```
+
+## MIB API Reference (v1.7.0+)
+
+Parses SMIv2 (RFC 2578/2579/2580) and SMIv1 (RFC 1155/1212/1215) into one OID tree.
+
+### MibTree
+
+```python
+from snmpkit.mib import MibTree
+
+tree = MibTree()
+tree.load_dir("/usr/share/snmp/mibs")   # returns the number of modules parsed
+tree.load_file("VENDOR-MIB")
+tree.load_str(text)
+
+node = tree.lookup("sysUpTime")          # name, MODULE::name, or numeric OID
+node = tree.lookup("1.3.6.1.2.1.1.3")
+tree.translate("1.3.6.1.2.1.2.2.1.2.3")  # 'IF-MIB::ifDescr.3'
+tree.nearest("1.3.6.1.2.1.1.3.0")        # node, ignoring the instance suffix
+
+tree.children("ifTable")
+tree.walk("ifTable")                     # depth-first, OID order
+tree.roots, tree.modules, tree.diagnostics
+"ifDescr" in tree, len(tree), tree["ifDescr"]
+```
+
+### MibNode
+
+```python
+node.name, node.module, node.oid, node.numeric_oid
+node.kind          # node | scalar | table | row | column | notification
+node.syntax        # 'DisplayString' - as the MIB wrote it
+node.base_type     # 'OCTET STRING'  - what it resolves to
+node.max_access, node.status, node.description, node.units
+node.display_hint, node.enums, node.defval
+node.index, node.implied, node.augments, node.row_type, node.objects
+node.parent, node.children, node.columns
+
+node.format(1)                # 'up'   - enum label
+node.format(b"\x00\x1a\x2b")  # '00:1a:2b' - DISPLAY-HINT, RFC 2579 3.1
+node.enum_name(1), node.enum_value("up")
+```
+
+### Using MIB names with the Manager
+
+```python
+from snmpkit.manager import Manager
+
+async with Manager("192.0.2.1", community="public", mib=tree) as mgr:
+    await mgr.get("sysDescr.0")          # names work anywhere an OID does
+    await mgr.get("IF-MIB::ifNumber.0")
+    await mgr.get("1.3.6.1.2.1.1.1.0")   # numeric still works
+
+    mgr.resolve("ifDescr.1")             # -> '1.3.6.1.2.1.2.2.1.2.1'
+    mgr.translate("1.3.6.1.2.1.1.3.0")   # -> 'SNMPv2-MIB::sysUpTime.0'
+    mgr.format("ifOperStatus.1", value)  # -> 'up'
 ```
 
 ## Agent API Reference

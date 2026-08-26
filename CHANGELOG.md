@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-08-12
+
+### Added
+
+- **MIB parsing** — `src/mib/` reads the SMI definition language and resolves it into one browsable OID tree. This is the MIB *text* format, not ASN.1/BER; the wire encoding in `src/asn1/` is unchanged.
+  - SMIv2 per RFC 2578 (`OBJECT-TYPE`, `MODULE-IDENTITY`, `OBJECT-IDENTITY`, `NOTIFICATION-TYPE`), RFC 2579 (`TEXTUAL-CONVENTION`, `DISPLAY-HINT`) and RFC 2580 (conformance macros, parsed then discarded)
+  - SMIv1 per RFC 1155/1212/1215 — the `ACCESS`/`STATUS mandatory` keywords, `Counter`/`Gauge`/`NetworkAddress` as base types, and `TRAP-TYPE` mapped to a notification OID using RFC 2576 §3.1
+  - `IMPORTS` resolution across loaded modules, symbolic name <-> numeric OID in both directions, and type chains followed through textual conventions down to a base type
+  - Enumeration labels, `DISPLAY-HINT` formatting (RFC 2579 §3.1), and conceptual table detection with `INDEX`, `IMPLIED` and `AUGMENTS`
+  - Error recovery: a malformed definition is skipped and reported as a diagnostic rather than failing the module. Verified against all 328 MIBs Net-SNMP ships.
+- **`snmpkit.mib.MibTree`** — `load_file()`, `load_dir()`, `load_str()`, `lookup()`, `translate()`, `children()`, `walk()`, plus `modules` and `diagnostics`
+- **`snmpkit.mib.MibNode`** — `oid`, `name`, `module`, `kind`, `syntax`, `base_type`, `max_access`, `status`, `description`, `units`, `display_hint`, `enums`, `index`, `augments`, `columns`, and `format()` for rendering a value the way its MIB says it should look
+- **`Manager(..., mib=tree)` / `SyncManager(..., mib=tree)`** — every method that takes an OID also takes a MIB name, bare (`ifDescr`), module-qualified (`IF-MIB::ifDescr`) or with an instance suffix (`sysUpTime.0`). Numeric OIDs are unaffected, so this is additive. A name that is not in the loaded MIBs raises `ValueError`.
+- **`Manager.resolve()`, `Manager.translate()`, `Manager.format()`** — name to OID, OID to name, and value rendering per the object's enumeration or `DISPLAY-HINT`
+- **`MibTree.nearest()`** — the deepest node at or above an OID, ignoring any instance suffix
+
+### Changed
+
+- **`SnmpError.unreachable`** — every manager exception now carries a boolean saying whether the device failed to answer at all (`TimeoutError`, `UnreachableError`) or answered that an object does not exist (`NoSuchObjectError`, `NoSuchInstanceError`, `EndOfMibViewError`, `GenericError`). Callers driving an online/offline fault should branch on this rather than on the exception class.
+- **`SnmpError.auth_failed`** — set only by `AuthenticationError`. Bad SNMPv3 credentials leave a device reachable but unreadable, so it is deliberately *not* `unreachable`. Consumers that treat "reachable and no error" as healthy must branch on this too, or a device with wrong credentials looks fine while returning nothing.
+- **`Manager.resolve()` validates the instance suffix.** A MIB name with a non-numeric suffix (`ifDescr.ifIndex`, `sysUpTime.0.extra`) raised nothing and returned a malformed OID; it now raises `ValueError`. The numeric-passthrough check is ASCII-only, so Unicode digits no longer slip through.
+
+- **Interop test suite** (`tests/interop/`) — runs snmpkit against a real net-snmp `snmpd` inside a podman container, on Debian bookworm's Python 3.11 so the declared floor is exercised too. Covers SNMPv3 across four auth/priv combinations, an AgentX subagent registered with a live master and queried back through the manager, and the trap receiver against traps emitted by `snmptrap`. Run with `kyle test:interop`.
+- **Tooling moved from uv to PDM**, with `use_uv = true` so PDM still resolves and installs through uv. `uv.lock` is replaced by `pdm.lock`. Dev dependencies are consolidated into a single PEP 735 `[dependency-groups]` entry, and `pdm run test <path>` applies `-n auto` automatically. `kyle` gains `lock`, `deps:outdated`, `deps:sync` and `bench`.
+
+### Fixed
+
+- **AgentX `VarBind` was encoded in the wrong field order, so subagents never worked against a real master.** RFC 2741 §5.4 orders a VarBind as type, reserved, name, data; snmpkit emitted name, type, reserved, data. Encode and decode agreed with each other, so every roundtrip test passed while `snmpd` timed out on every Get and answered `genError` to clients. Found by running a subagent against a live net-snmp master. Wire-layout tests now assert the byte order against the RFC rather than only round-tripping.
+- **SNMPv3 authentication failures raised a bare `ValueError`**, escaping the `SnmpError` hierarchy — the same leak as the transport errors below. They now raise `AuthenticationError`, which `troubleshooting` had documented for some time without it existing. It is not `unreachable`: the device answered, the response just could not be verified.
+- **A refused UDP port waited out the full timeout.** The OS reports ICMP port-unreachable immediately, but `error_received` only logged it and the request fell through to `timeout x retries`. The error now ends the attempt at once and raises `UnreachableError`: against a closed local port with `timeout=2, retries=3` this went from 6.0s to 0.018s. A host that is genuinely silent still waits the full budget, as it must.
+- **Transport errors escaped the `SnmpError` hierarchy.** A bad hostname raised `socket.gaierror` and a failed connection raised `OSError`, so a caller catching `SnmpError` missed them entirely. Both are now converted to `UnreachableError` at the transport boundary, for UDP and TCP.
+- `AGENTS.md` claimed Python 3.14+ was required. The real floor is 3.11 (`requires-python = ">=3.11"`), and CI tests 3.11 through 3.14.
+
+### Notes
+
+- No new Rust dependencies. The lexer, parser and resolver are hand-written, matching the existing policy for the ASN.1 layer, OID trie and USM crypto.
+- RFC 2579 §3.1 says leading zeros are omitted, but only in its integer-format section, so `DISPLAY-HINT "x"` on an INTEGER renders unpadded. The octet-format spec states no padding rule, so for `OCTET STRING` hints such as `PhysAddress`'s `1x:` snmpkit pads one zero-filled pair per octet (`00:0c:29:5f:8a:1b`) where Net-SNMP does not (`0:c:29:5f:8a:1b`) — a MAC address with dropped leading zeros is the wrong thing to put in front of a user. Case follows Net-SNMP.
+
 ## [1.6.0] - 2026-04-13
 
 ### Added

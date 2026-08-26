@@ -204,6 +204,6 @@ fn snmpkit_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
 mod tests {
     #[test]
     fn test_version() {
-        assert_eq!(env!("CARGO_PKG_VERSION"), "1.6.0");
+        assert_eq!(env!("CARGO_PKG_VERSION"), "1.7.0");
     }
 }
