@@ -5,13 +5,20 @@ import asyncio
 import json
 from datetime import datetime
 
-from benchmarks.bench_ber import run_benchmarks as run_ber
-from benchmarks.bench_get import run_benchmarks as run_get
-from benchmarks.bench_walk import run_benchmarks as run_walk
 
 
 async def main():
     """Run all benchmarks and generate report."""
+    try:
+        from benchmarks.bench_ber import run_benchmarks as run_ber
+        from benchmarks.bench_get import run_benchmarks as run_get
+        from benchmarks.bench_mib import run_benchmarks as run_mib
+        from benchmarks.bench_walk import run_benchmarks as run_walk
+    except ImportError as e:
+        print(f"benchmark dependencies are missing ({e.name}).")
+        print("They are not in the dev group: pdm install -G bench")
+        return {}
+
     print()
     print("=" * 70)
     print("  snmpkit Benchmark Suite")
@@ -24,6 +31,10 @@ async def main():
     # BER encoding (no network required)
     print()
     results["ber"] = run_ber()
+
+    # MIB parsing (no network required)
+    print()
+    results["mib"] = run_mib()
 
     # GET requests (requires SNMP target)
     print()
@@ -51,6 +62,13 @@ async def main():
         print(
             f"{'BER encode':<20} {r['snmpkit']['mean']:.1f}us{'':<8} "
             f"{r['pysnmp']['mean']:.1f}us{'':<8} {r['speedup']:.1f}x"
+        )
+
+    if "mib" in results and "speedup" in results["mib"]:
+        r = results["mib"]
+        print(
+            f"{'MIB parse':<20} {r['snmpkit']['total'] * 1000:.0f}ms{'':<9} "
+            f"{r['pysmi']['total'] * 1000:.0f}ms{'':<9} {r['speedup']:.1f}x"
         )
 
     if "get" in results:

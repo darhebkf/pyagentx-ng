@@ -24,7 +24,7 @@ run = "curl -fsSL https://bun.sh/install | bash"
 
 [tasks."setup:deps"]
 desc = "Install project dependencies"
-run = "pdm install -d && cd docs && bun install"
+run = "pdm install -G dev && cd docs && bun install"
 
 # Build
 [tasks.build]
@@ -143,16 +143,20 @@ run = "pdm outdated"
 
 [tasks."deps:frozen"]
 desc = "Install exactly what pdm.lock pins, without re-resolving"
-run = "pdm install -d --frozen-lockfile"
+run = "pdm install -G dev --frozen-lockfile"
 
 [tasks."deps:sync"]
 desc = "Sync the venv to pdm.lock exactly"
-run = "pdm sync -d --clean"
+run = "pdm sync -G dev --clean"
 
 # Benchmarks
 [tasks.bench]
-desc = "Run all benchmarks (snmpkit vs pysnmp)"
-run = "pdm run bench"
+desc = "Run all benchmarks (snmpkit vs pysnmp/pysmi)"
+run = "kyle bench:deps && pdm run bench"
+
+[tasks."bench:deps"]
+desc = "Install the comparison libraries the benchmarks need"
+run = "pdm install -G dev -G bench --frozen-lockfile"
 
 # Docs
 [tasks."docs:dev"]

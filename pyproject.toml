@@ -50,12 +50,11 @@ select = ["E", "F", "I"]
 asyncio_mode = "auto"
 testpaths = ["python/tests"]
 
-
 [tool.pdm.scripts]
 dev = "maturin develop"
 refresh = {composite = ["refresh:rust", "refresh:python", "refresh:docs"]}
 "refresh:rust" = "maturin develop"
-"refresh:python" = "pdm sync -d"
+"refresh:python" = "pdm sync -G dev"
 "refresh:docs" = {shell = "cd docs && bun install"}
 test = "pytest -n auto {args}"
 lint = "ruff check {args:.}"
@@ -71,6 +70,11 @@ dev = [
     "pytest-asyncio>=1.4",
     "pytest-xdist>=3.8",
     "ruff>=0.16",
+]
+
+# Benchmark comparison targets. Out of dev because they pull in jinja2, lark
+# and requests; PDM treats every group as a dev group, so install with -G bench.
+bench = [
     "pysnmp>=7.1.22",
     "pysmi>=2.0",
 ]
