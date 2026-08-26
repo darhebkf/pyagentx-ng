@@ -82,7 +82,7 @@ async def run_benchmarks():
         print(f"Error: {e}")
         print()
         print("Ensure snmpd is running: sudo systemctl start snmpd")
-        print("Or: SNMP_HOST=192.168.1.1 uv run python benchmarks/bench_walk.py")
+        print("Or: SNMP_HOST=192.168.1.1 pdm run python benchmarks/bench_walk.py")
         return None
 
     print(f"Running {iterations} iterations...")

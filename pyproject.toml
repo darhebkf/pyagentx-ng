@@ -30,9 +30,6 @@ Repository = "https://github.com/darhebkf/snmpkit"
 Changelog = "https://github.com/darhebkf/snmpkit/blob/main/CHANGELOG.md"
 Issues = "https://github.com/darhebkf/snmpkit/issues"
 
-[project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "pytest-xdist>=3.5", "ruff>=0.9"]
-
 [build-system]
 requires = ["maturin>=1.8,<2.0"]
 build-backend = "maturin"
@@ -53,7 +50,27 @@ select = ["E", "F", "I"]
 asyncio_mode = "auto"
 testpaths = ["python/tests"]
 
+
+[tool.pdm.scripts]
+dev = "maturin develop"
+refresh = {composite = ["refresh:rust", "refresh:python", "refresh:docs"]}
+"refresh:rust" = "maturin develop"
+"refresh:python" = "pdm sync -d"
+"refresh:docs" = {shell = "cd docs && bun install"}
+test = "pytest -n auto {args}"
+lint = "ruff check {args:.}"
+fmt = {shell = "ruff check --fix . && ruff format ."}
+fmt-check = {shell = "ruff check . && ruff format --check ."}
+bench = "python -m benchmarks.run_all"
+lock = "pdm lock --update-reuse"
+outdated = "pdm outdated"
 [dependency-groups]
 dev = [
+    "maturin>=1.8,<2.0",
+    "pytest>=9.1",
+    "pytest-asyncio>=1.4",
+    "pytest-xdist>=3.8",
+    "ruff>=0.16",
     "pysnmp>=7.1.22",
+    "pysmi>=2.0",
 ]

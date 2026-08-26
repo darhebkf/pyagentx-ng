@@ -24,3 +24,5 @@ htmlcov/
 
 # Miscellaneous
 **local.*
+# PDM local interpreter pin
+.pdm-python

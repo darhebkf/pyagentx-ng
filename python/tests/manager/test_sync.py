@@ -2,10 +2,28 @@
 
 from __future__ import annotations
 
+import inspect
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from snmpkit.core import Value
 from snmpkit.manager.sync import SyncManager
+
+
+@contextmanager
+def patched_run(mgr, return_value=None):
+    """Patch _run and close the coroutine it was handed.
+
+    The sync wrappers build a coroutine and pass it to _run. With _run mocked
+    nothing awaits it, so Python warns unless it is closed here.
+    """
+    with patch.object(mgr, "_run", return_value=return_value) as mock_run:
+        yield mock_run
+    for call in mock_run.call_args_list:
+        for arg in call.args:
+            if inspect.iscoroutine(arg):
+                arg.close()
 
 
 class TestSyncManagerInit:
@@ -62,7 +80,12 @@ class TestSyncManagerLifecycle:
                     mock_thread = MagicMock()
                     mock_thread_cls.return_value = mock_thread
 
-                    mgr.connect()
+                    with patch.object(mgr, "_run", return_value=None) as mock_run:
+                        mgr.connect()
+                    for call in mock_run.call_args_list:
+                        for arg in call.args:
+                            if inspect.iscoroutine(arg):
+                                arg.close()
 
                     mock_thread.start.assert_called_once()
                     assert mgr._manager is not None
@@ -88,8 +111,7 @@ class TestSyncManagerLifecycle:
         mgr._thread = mock_thread
         mgr._manager = mock_manager
 
-        with patch.object(mgr, "_run") as mock_run:
-            mock_run.return_value = None
+        with patched_run(mgr):
             mgr.close()
 
         mock_loop.call_soon_threadsafe.assert_called_once_with(mock_loop.stop)
@@ -114,7 +136,7 @@ class TestSyncManagerOperations:
     def test_get(self):
         mgr = self._make_mgr()
         mgr._manager.get = AsyncMock(return_value=Value.Integer(42))
-        with patch.object(mgr, "_run", wraps=lambda coro: Value.Integer(42)):
+        with patched_run(mgr, Value.Integer(42)):
             result = mgr.get("1.3.6.1.2.1.1.1.0")
             assert result == Value.Integer(42)
 
@@ -144,14 +166,14 @@ class TestSyncManagerOperations:
             ("1.3.6.1.2.1.1.1.0", Value.OctetString(b"Linux")),
             ("1.3.6.1.2.1.1.2.0", Value.OctetString(b"test")),
         ]
-        with patch.object(mgr, "_run", return_value=expected):
+        with patched_run(mgr, expected):
             result = mgr.walk("1.3.6.1.2.1.1")
             assert result == expected
 
     def test_bulk_walk(self):
         mgr = self._make_mgr()
         expected = [("1.3.6.1.2.1.2.2.1.1.1", Value.Integer(1))]
-        with patch.object(mgr, "_run", return_value=expected):
+        with patched_run(mgr, expected):
             result = mgr.bulk_walk("1.3.6.1.2.1.2.2", bulk_size=20)
             assert result == expected
 
@@ -176,10 +198,18 @@ class TestSyncManagerOperations:
 
     def test_run_not_connected_raises(self):
         mgr = SyncManager("10.0.0.1")
-        import pytest
 
-        with pytest.raises(RuntimeError, match="Not connected"):
-            mgr._run(AsyncMock()())
+        async def never_dispatched():
+            return None
+
+        # _run raises before awaiting, so the coroutine has to be closed by
+        # hand or Python warns that it was never awaited.
+        coro = never_dispatched()
+        try:
+            with pytest.raises(RuntimeError, match="Not connected"):
+                mgr._run(coro)
+        finally:
+            coro.close()
 
 
 class TestSyncManagerExport:

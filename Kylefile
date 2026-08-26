@@ -4,36 +4,53 @@ name = "snmpkit"
 # Setup
 [tasks.setup]
 desc = "Install all development dependencies"
-run = "kyle setup:rust && kyle setup:uv && kyle setup:bun && kyle setup:maturin && kyle setup:deps"
+run = "kyle setup:rust && kyle setup:uv && kyle setup:pdm && kyle setup:bun && kyle setup:deps"
 
 [tasks."setup:rust"]
 desc = "Install Rust via rustup"
 run = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
 
 [tasks."setup:uv"]
-desc = "Install uv package manager"
+desc = "Install uv (PDM resolves and installs through it)"
 run = "curl -LsSf https://astral.sh/uv/install.sh | sh"
+
+[tasks."setup:pdm"]
+desc = "Install PDM package manager"
+run = "curl -sSL https://pdm-project.org/install-pdm.py | python3 -"
 
 [tasks."setup:bun"]
 desc = "Install bun runtime"
 run = "curl -fsSL https://bun.sh/install | bash"
 
-[tasks."setup:maturin"]
-desc = "Install maturin build tool"
-run = "uv tool install maturin"
-
 [tasks."setup:deps"]
 desc = "Install project dependencies"
-run = "uv sync --extra dev && cd docs && bun install"
+run = "pdm install -d && cd docs && bun install"
 
 # Build
 [tasks.build]
 desc = "Build release (Python + Rust)"
-run = "maturin build --release"
+run = "pdm run maturin build --release"
 
 [tasks.dev]
 desc = "Install in development mode"
-run = "maturin develop"
+run = "pdm run refresh:rust"
+
+# Refresh (rebuild without reinstalling toolchains)
+[tasks.refresh]
+desc = "Rebuild the extension and refresh dev dependencies"
+run = "pdm run refresh"
+
+[tasks."refresh:rust"]
+desc = "Rebuild the Rust extension into the venv"
+run = "pdm run refresh:rust"
+
+[tasks."refresh:python"]
+desc = "Sync Python dev dependencies to pdm.lock"
+run = "pdm run refresh:python"
+
+[tasks."refresh:docs"]
+desc = "Refresh docs dependencies"
+run = "pdm run refresh:docs"
 
 # Test
 [tasks.test]
@@ -46,9 +63,25 @@ run = "cargo test"
 
 [tasks."test:python"]
 desc = "Run Python tests (parallel)"
-run = "uv run pytest -n auto"
+run = "pdm run test"
 
-# Format (uvx to avoid triggering build)
+[tasks."test:interop"]
+desc = "Interop tests against a real net-snmp agent, in a container"
+run = "kyle interop:build && kyle interop:run"
+
+[tasks."interop:build"]
+desc = "Build the interop container image"
+run = "podman build -f tests/interop/Containerfile -t snmpkit-interop ."
+
+[tasks."interop:run"]
+desc = "Run the interop suite in the container"
+run = "podman run --rm snmpkit-interop"
+
+[tasks."interop:shell"]
+desc = "Shell into the interop container"
+run = "podman run --rm -it snmpkit-interop bash"
+
+# Format
 [tasks.format]
 desc = "Format all code"
 run = "kyle format:rust && kyle format:python && kyle format:docs"
@@ -59,13 +92,13 @@ run = "cargo fmt"
 
 [tasks."format:python"]
 desc = "Format Python code"
-run = "uvx ruff check --fix . && uvx ruff format ."
+run = "pdm run fmt"
 
 [tasks."format:docs"]
 desc = "Format docs code"
 run = "cd docs && bun run format"
 
-# Lint (uvx to avoid triggering build)
+# Lint
 [tasks.lint]
 desc = "Lint all code"
 run = "kyle lint:rust && kyle lint:python && kyle lint:docs"
@@ -76,7 +109,7 @@ run = "cargo clippy -- -D warnings"
 
 [tasks."lint:python"]
 desc = "Lint Python code"
-run = "uvx ruff check ."
+run = "pdm run lint"
 
 [tasks."lint:docs"]
 desc = "Lint docs code"
@@ -93,11 +126,33 @@ run = "cargo check && cargo clippy"
 
 [tasks."check:python"]
 desc = "Type check Python code"
-run = "uvx ruff check ."
+run = "pdm run lint"
 
 [tasks."check:docs"]
 desc = "Type check docs (tsgo)"
 run = "cd docs && bun run check"
+
+# Dependencies
+[tasks.lock]
+desc = "Regenerate pdm.lock"
+run = "pdm lock"
+
+[tasks."deps:outdated"]
+desc = "Show outdated dependencies"
+run = "pdm outdated"
+
+[tasks."deps:frozen"]
+desc = "Install exactly what pdm.lock pins, without re-resolving"
+run = "pdm install -d --frozen-lockfile"
+
+[tasks."deps:sync"]
+desc = "Sync the venv to pdm.lock exactly"
+run = "pdm sync -d --clean"
+
+# Benchmarks
+[tasks.bench]
+desc = "Run all benchmarks (snmpkit vs pysnmp)"
+run = "pdm run bench"
 
 # Docs
 [tasks."docs:dev"]
@@ -116,10 +171,10 @@ run = "cargo clean && rm -rf dist/ build/ *.egg-info .venv docs/.next docs/node_
 # Pre-commit
 [tasks.pre-commit]
 desc = "Run pre-commit checks"
-run = "cargo fmt --check && cargo clippy -- -D warnings && uvx ruff check . && uvx ruff format --check ."
+run = "cargo fmt --check && cargo clippy -- -D warnings && pdm run fmt-check"
 
 # Publish
 [tasks.publish]
 desc = "Publish to PyPI"
-run = "maturin publish"
+run = "pdm run maturin publish"
 deps = ["test", "lint"]

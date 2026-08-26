@@ -29,10 +29,12 @@ uv add snmpkit
 ```python
 from snmpkit.agent import Agent, Updater
 
+
 class MyUpdater(Updater):
     async def update(self):
         self.set_INTEGER("1.0", 42)
         self.set_OCTETSTRING("2.0", "hello")
+
 
 agent = Agent(agent_id="MyAgent")
 agent.register("1.3.6.1.4.1.12345", MyUpdater(), freq=10)
@@ -48,7 +50,7 @@ agent.start_sync()  # or: await agent.start()
 Requires [kyle](https://github.com/achmedius/kyle) task runner. Linux/macOS/Unix only.
 
 ```bash
-# First time setup (installs Rust, uv, bun, maturin)
+# First time setup (installs Rust, uv, PDM, bun)
 kyle setup
 
 # Or if you have the tools already
@@ -60,6 +62,13 @@ kyle format          # Format all code (Python + Rust + TS)
 kyle lint         # Lint all code
 kyle docs:dev     # Start docs dev server
 kyle check        # Type check and lint
+```
+
+Dependencies are managed by PDM, which resolves through uv. For a reproducible
+install from `pdm.lock` without re-resolving:
+
+```bash
+kyle deps:frozen
 ```
 
 ## License
