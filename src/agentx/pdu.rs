@@ -153,8 +153,8 @@ pub enum ValueType {
     EndOfMibView = 130,
 }
 
-pub fn encode_value<W: Write>(writer: &mut W, value: &Value) -> io::Result<()> {
-    let (type_code, data): (u16, Option<Vec<u8>>) = match value {
+pub fn value_parts(value: &Value) -> io::Result<(u16, Option<Vec<u8>>)> {
+    let parts: (u16, Option<Vec<u8>>) = match value {
         Value::Integer(v) => (ValueType::Integer as u16, Some(v.to_be_bytes().to_vec())),
         Value::OctetString(v) => {
             let mut buf = Vec::new();
@@ -181,23 +181,35 @@ pub fn encode_value<W: Write>(writer: &mut W, value: &Value) -> io::Result<()> {
         Value::NoSuchInstance() => (ValueType::NoSuchInstance as u16, None),
         Value::EndOfMibView() => (ValueType::EndOfMibView as u16, None),
     };
+    Ok(parts)
+}
 
-    writer.write_all(&type_code.to_be_bytes())?;
-    writer.write_all(&[0u8; 2])?; // reserved
-
+pub fn encode_value<W: Write>(writer: &mut W, value: &Value) -> io::Result<()> {
+    let (type_code, data) = value_parts(value)?;
+    write_value_header(writer, type_code)?;
     if let Some(d) = data {
         writer.write_all(&d)?;
     }
-
     Ok(())
 }
 
+fn write_value_header<W: Write>(writer: &mut W, type_code: u16) -> io::Result<()> {
+    writer.write_all(&type_code.to_be_bytes())?;
+    writer.write_all(&[0u8; 2]) // reserved
+}
+
 pub fn decode_value<R: Read>(reader: &mut R) -> io::Result<Value> {
+    let type_code = decode_value_header(reader)?;
+    decode_value_data(reader, type_code)
+}
+
+fn decode_value_header<R: Read>(reader: &mut R) -> io::Result<u16> {
     let mut header = [0u8; 4];
     reader.read_exact(&mut header)?;
+    Ok(u16::from_be_bytes([header[0], header[1]]))
+}
 
-    let type_code = u16::from_be_bytes([header[0], header[1]]);
-
+pub fn decode_value_data<R: Read>(reader: &mut R, type_code: u16) -> io::Result<Value> {
     let value = match type_code {
         2 => {
             let mut buf = [0u8; 4];
@@ -282,15 +294,21 @@ impl VarBind {
         Self { oid, value }
     }
 
+    // RFC 2741 §5.4: type, reserved, name, data.
     pub fn encode<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        let (type_code, data) = value_parts(&self.value)?;
+        write_value_header(writer, type_code)?;
         encode_oid(writer, &self.oid, false)?;
-        encode_value(writer, &self.value)?;
+        if let Some(d) = data {
+            writer.write_all(&d)?;
+        }
         Ok(())
     }
 
     pub fn decode<R: Read>(reader: &mut R) -> io::Result<Self> {
+        let type_code = decode_value_header(reader)?;
         let (oid, _) = decode_oid(reader)?;
-        let value = decode_value(reader)?;
+        let value = decode_value_data(reader, type_code)?;
         Ok(Self { oid, value })
     }
 }
@@ -298,6 +316,36 @@ impl VarBind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_varbind_wire_layout_matches_rfc2741() {
+        let vb = VarBind::new("1.3.6.1.4.1.99999.1.0".parse().unwrap(), Value::Integer(42));
+        let mut buf = Vec::new();
+        vb.encode(&mut buf).unwrap();
+
+        assert_eq!(&buf[0..2], &[0x00, 0x02]);
+        assert_eq!(&buf[2..4], &[0x00, 0x00]);
+        // §5.1: n_subid, prefix, include, reserved
+        assert_eq!(&buf[4..8], &[4, 4, 0, 0]);
+        assert_eq!(&buf[8..12], &1u32.to_be_bytes());
+        assert_eq!(&buf[12..16], &99999u32.to_be_bytes());
+        assert_eq!(&buf[16..20], &1u32.to_be_bytes());
+        assert_eq!(&buf[20..24], &0u32.to_be_bytes());
+        assert_eq!(&buf[24..28], &42i32.to_be_bytes());
+        assert_eq!(buf.len(), 28);
+    }
+
+    #[test]
+    fn test_varbind_without_data_is_type_then_name() {
+        let vb = VarBind::new("1.3.6.1.2.1.1.1.0".parse().unwrap(), Value::NoSuchObject());
+        let mut buf = Vec::new();
+        vb.encode(&mut buf).unwrap();
+        assert_eq!(&buf[0..2], &[0x00, 0x80]);
+        assert_eq!(&buf[2..4], &[0x00, 0x00]);
+        // 1.3.6.1.2 collapses into prefix 2, leaving 1.1.1.0
+        assert_eq!(&buf[4..8], &[4, 2, 0, 0]);
+        assert_eq!(buf.len(), 24);
+    }
 
     #[test]
     fn test_oid_encode_decode() {
