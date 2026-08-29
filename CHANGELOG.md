@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-08-30
+
+### Added
+
+- **`peek_correlation_id(data)`** — the id a response will be matched on, read straight off the wire: msgID for v3 (RFC 3412 §6.2, in the plaintext header) and the PDU request-id for v1/v2c. It needs no USM keys, so a transport can route a datagram before anything is decrypted.
+
+### Fixed
+
+- **Concurrent requests on one `Manager` were handed each other's responses.** Both transports tracked a single outstanding request: `UdpTransport` kept one `_response` and one `asyncio.Event`, so two overlapping `send_request` calls both cleared it, both waited on the same event, and both woke on whichever datagram arrived first — returning the same bytes to both callers. `TcpTransport` was worse: two coroutines calling `readexactly` on one stream tore the length-prefixed framing apart. Both now keep a registry of in-flight requests keyed by correlation id, and TCP reads frames in one background task that hands each to the request it answers.
+
+  This is why a caller polling several OID groups at once had to build a `Manager` per group. One `Manager` per device is now correct, which is one socket and, for v3, one engine discovery instead of one per group.
+
 ## [1.8.0] - 2026-08-30
 
 ### Added
@@ -282,7 +294,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Python 3.14+
 - Rust 1.83.0+
 
-[Unreleased]: https://github.com/darhebkf/snmpkit/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/darhebkf/snmpkit/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/darhebkf/snmpkit/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/darhebkf/snmpkit/compare/v1.7.0...v1.8.0
 [1.4.0]: https://github.com/darhebkf/snmpkit/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/darhebkf/snmpkit/compare/v1.2.1...v1.3.0

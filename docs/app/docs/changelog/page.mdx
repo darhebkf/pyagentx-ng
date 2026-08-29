@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented here.
 
+## [1.9.0] - 2026-08-30
+
+### Added
+
+- **`peek_correlation_id()`** — the id a response is matched on, read off the wire without USM keys: msgID for v3, PDU request-id for v1/v2c.
+
+### Fixed
+
+- **Concurrent requests on one `Manager` were handed each other's responses.** Both transports tracked a single outstanding request, so two overlapping calls woke on whichever answer arrived first; on TCP two readers also tore the framing apart. Both now key in-flight requests by correlation id. One `Manager` per device is now correct — one socket, and for v3 one engine discovery.
+
 ## [1.8.0] - 2026-08-30
 
 ### Added
