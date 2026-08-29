@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented here.
 
+## [1.8.0] - 2026-08-30
+
+### Added
+
+- **`password_to_privacy_key()`** — derives a localized privacy key of the length the cipher needs, extending it per draft-blumenthal-aes-usm-04 §3.1.2.1 when the authentication hash is shorter. `Manager` uses it during discovery, so no caller change is needed.
+
+### Fixed
+
+- **AES-192 and AES-256 silently encrypted with AES-128.** Both were accepted and documented, but the CFB helpers were hardcoded to `Aes128` and sliced the key to its first 16 bytes, so asking for AES-256 got AES-128 with no error. The helpers are now generic over the cipher, and the privacy key is extended to the length the cipher actually needs. Interop coverage against net-snmp now includes both.
+
 ## [1.7.0] - 2026-08-12
 
 ### Added

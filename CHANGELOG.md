@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-08-30
+
+### Added
+
+- **`password_to_privacy_key(password, engine_id, auth_protocol, priv_protocol)`** — derives a localized privacy key of the length the cipher actually needs, extending it per draft-blumenthal-aes-usm-04 §3.1.2.1 when the authentication hash is shorter than the key. `Manager` uses it during discovery, so no caller change is required.
+- **`PrivProtocol::derived_key_length()`** — the key material USM derives before the cipher takes its key. Distinct from `key_length()`, because DES derives 16 bytes and uses 8 of them as the key with the other 8 as the pre-IV (RFC 3414 §8.1.1.1).
+- **Interop coverage for AES-192 and AES-256**, as two more USM users on the net-snmp agent in `tests/interop/`.
+
+### Fixed
+
+- **AES-192 and AES-256 silently encrypted with AES-128.** Both were accepted by `Manager`, declared in `PrivProtocol::key_length()` and advertised in the docs, but `encrypt_scoped_pdu` routed them into a function hardcoded to `cfb_mode::Encryptor<Aes128>` that sliced the key to its first 16 bytes. A caller asking for AES-256 got AES-128 with no error, and the extra key material was never used. The CFB functions are now generic over the cipher and take the whole key. There was no path that produced a long enough key either: the privacy key was derived with the authentication hash alone, so SHA-1 yielded 20 bytes where AES-256 needs 32.
+
+  Net-SNMP applies the Blumenthal extension unless the Reeder flag is set, so snmpkit matches that default and interoperates with `createUser ... AES-192` and `AES-256` out of the box.
+
 ## [1.7.0] - 2026-08-12
 
 ### Added
@@ -268,7 +282,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Python 3.14+
 - Rust 1.83.0+
 
-[Unreleased]: https://github.com/darhebkf/snmpkit/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/darhebkf/snmpkit/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/darhebkf/snmpkit/compare/v1.7.0...v1.8.0
 [1.4.0]: https://github.com/darhebkf/snmpkit/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/darhebkf/snmpkit/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/darhebkf/snmpkit/compare/v1.2.0...v1.2.1
