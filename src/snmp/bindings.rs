@@ -372,6 +372,33 @@ pub fn encode_snmp_getbulk_v3(
 
 // Decoding
 
+// Correlation id for matching a response to the request that asked for it
+//
+// v3 carries msgID in the plaintext header (RFC 3412 6.2), so it is readable
+// before the scoped PDU is decrypted; v1 and v2c match on the PDU request-id.
+// Neither needs the USM keys, so a transport can route a datagram on its own.
+#[pyfunction]
+pub fn peek_correlation_id(data: &[u8]) -> PyResult<i32> {
+    if let Ok((msg, _)) = MessageV3::decode(data) {
+        return Ok(msg.msg_id);
+    }
+
+    if let Ok((msg, _)) = MessageV2c::decode(data) {
+        return Ok(match msg {
+            MessageV2c::Standard { pdu, .. } => pdu.request_id,
+            MessageV2c::Bulk { pdu, .. } => pdu.request_id,
+        });
+    }
+
+    if let Ok((msg, _)) = MessageV1::decode(data) {
+        return Ok(msg.pdu.request_id);
+    }
+
+    Err(pyo3::exceptions::PyValueError::new_err(
+        "not an SNMP message",
+    ))
+}
+
 #[pyfunction]
 pub fn decode_snmp_response(data: &[u8]) -> PyResult<PySnmpResponse> {
     if data.is_empty() {

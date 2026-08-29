@@ -2,7 +2,14 @@
 
 import pytest
 import snmpkit
-from snmpkit.core import Value
+from snmpkit.core import (
+    Oid,
+    Value,
+    encode_snmp_get_v1,
+    encode_snmp_get_v2c,
+    encode_snmp_get_v3,
+    peek_correlation_id,
+)
 
 
 def test_version():
@@ -108,3 +115,31 @@ class TestValueArithmetic:
     def test_round(self):
         v = Value.Integer(1234)
         assert round(int(v) / 100, 2) == 12.34
+
+
+class TestPeekCorrelationId:
+    """The id a transport routes a response by, without any USM keys."""
+
+    def test_v2c_returns_the_request_id(self):
+        request = encode_snmp_get_v2c("public", 4242, [Oid("1.3.6.1.2.1.1.1.0")])
+        assert peek_correlation_id(request) == 4242
+
+    def test_v1_returns_the_request_id(self):
+        request = encode_snmp_get_v1("public", 77, [Oid("1.3.6.1.2.1.1.1.0")])
+        assert peek_correlation_id(request) == 77
+
+    def test_v3_returns_the_msg_id(self):
+        request = encode_snmp_get_v3(
+            msg_id=31337,
+            request_id=1,
+            oids=[Oid("1.3.6.1.2.1.1.1.0")],
+            engine_id=b"",
+            engine_boots=0,
+            engine_time=0,
+            user_name="",
+        )
+        assert peek_correlation_id(request) == 31337
+
+    def test_garbage_raises(self):
+        with pytest.raises(ValueError):
+            peek_correlation_id(b"not an snmp message")

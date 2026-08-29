@@ -6,8 +6,14 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from snmpkit.core import Oid, encode_snmp_get_v2c
 from snmpkit.manager.exceptions import TimeoutError
 from snmpkit.manager.tcp_transport import _LENGTH_PREFIX, TcpTransport
+
+
+def message(request_id: int) -> bytes:
+    """A real v2c message, since the transport routes on its request id."""
+    return encode_snmp_get_v2c("public", request_id, [Oid("1.3.6.1.2.1.1.1.0")])
 
 
 @pytest.fixture
@@ -83,57 +89,64 @@ class TestTcpTransportSendRequest:
             await transport.send_request(b"test")
 
     async def test_send_request_returns_response(self, transport):
-        response_data = b"\x30\x03response"
-        response_frame = _LENGTH_PREFIX.pack(len(response_data)) + response_data
-
-        mock_reader = MagicMock()
-        mock_reader.readexactly = AsyncMock(side_effect=[response_frame[:4], response_data])
+        request = message(42)
         mock_writer = MagicMock()
         mock_writer.drain = AsyncMock()
+        mock_writer.write.side_effect = lambda _: transport._waiters.deliver(request)
 
-        transport._reader = mock_reader
+        transport._reader = MagicMock()
         transport._writer = mock_writer
 
-        result = await transport.send_request(b"request")
-
-        assert result == response_data
+        assert await transport.send_request(request) == request
         mock_writer.write.assert_called_once()
 
     async def test_send_request_retries_on_timeout(self, transport):
-        response_data = b"\x30\x00"
+        transport.timeout = 0.05
+        request = message(42)
+        attempts = [0]
 
-        call_count = [0]
+        def answer_on_third(_frame):
+            attempts[0] += 1
+            if attempts[0] == 3:
+                transport._waiters.deliver(request)
 
-        async def mock_readexactly(n):
-            call_count[0] += 1
-            if call_count[0] <= 2:
-                raise asyncio.TimeoutError()
-            if n == 4:
-                return _LENGTH_PREFIX.pack(len(response_data))
-            return response_data
-
-        mock_reader = MagicMock()
-        mock_reader.readexactly = mock_readexactly
         mock_writer = MagicMock()
         mock_writer.drain = AsyncMock()
+        mock_writer.write.side_effect = answer_on_third
 
-        transport._reader = mock_reader
+        transport._reader = MagicMock()
         transport._writer = mock_writer
 
-        result = await transport.send_request(b"request")
-        assert result == response_data
+        assert await transport.send_request(request) == request
+        assert attempts[0] == 3
 
     async def test_send_request_raises_after_all_retries(self, transport):
-        mock_reader = MagicMock()
-        mock_reader.readexactly = AsyncMock(side_effect=asyncio.TimeoutError())
+        transport.timeout = 0.01
         mock_writer = MagicMock()
         mock_writer.drain = AsyncMock()
 
-        transport._reader = mock_reader
+        transport._reader = MagicMock()
         transport._writer = mock_writer
 
         with pytest.raises(TimeoutError, match="timed out after 3 attempts"):
-            await transport.send_request(b"request")
+            await transport.send_request(message(42))
+
+    async def test_frames_are_routed_to_their_own_request(self, transport):
+        """Two requests on one stream must not be handed each other's answer."""
+        mock_writer = MagicMock()
+        mock_writer.drain = AsyncMock()
+        transport._reader = MagicMock()
+        transport._writer = mock_writer
+
+        first = asyncio.ensure_future(transport.send_request(message(1)))
+        second = asyncio.ensure_future(transport.send_request(message(2)))
+        await asyncio.sleep(0)
+
+        transport._waiters.deliver(message(2))
+        transport._waiters.deliver(message(1))
+
+        assert await first == message(1)
+        assert await second == message(2)
 
 
 class TestLengthPrefixFraming:

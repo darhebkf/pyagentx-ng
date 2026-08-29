@@ -111,6 +111,10 @@ fn snmpkit_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
         snmp::bindings::decode_snmp_response,
         m
     )?)?;
+    m.add_function(pyo3::wrap_pyfunction!(
+        snmp::bindings::peek_correlation_id,
+        m
+    )?)?;
 
     // SNMPv1 Trap
     m.add_function(pyo3::wrap_pyfunction!(

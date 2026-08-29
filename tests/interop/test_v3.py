@@ -1,5 +1,7 @@
 """SNMPv3 USM against a real agent, one case per auth/priv combination."""
 
+import asyncio
+
 import pytest
 from snmpkit.manager import Manager
 
@@ -53,3 +55,20 @@ async def test_v3_wrong_password_is_rejected():
     ) as mgr:
         with pytest.raises(SnmpError):
             await mgr.get(SYS_DESCR)
+
+
+@pytest.mark.parametrize("user,auth_p,auth_k,priv_p,priv_k", V3_USERS, ids=IDS)
+async def test_concurrent_gets_on_one_manager(user, auth_p, auth_k, priv_p, priv_k):
+    """v3 routes on msgID, so concurrent requests must not cross over."""
+    oids = [
+        "1.3.6.1.2.1.1.1.0",
+        "1.3.6.1.2.1.1.4.0",
+        "1.3.6.1.2.1.1.5.0",
+        "1.3.6.1.2.1.1.6.0",
+    ]
+    async with _manager(user, auth_p, auth_k, priv_p, priv_k) as mgr:
+        together = await asyncio.gather(*(mgr.get(oid) for oid in oids))
+        apart = [await mgr.get(oid) for oid in oids]
+
+    assert together == apart
+    assert len(set(together)) > 1, "identical values would hide a mismatch"

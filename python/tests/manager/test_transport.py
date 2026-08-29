@@ -4,8 +4,14 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from snmpkit.core import Oid, encode_snmp_get_v2c
 from snmpkit.manager.exceptions import TimeoutError, UnreachableError
 from snmpkit.manager.transport import UdpTransport, _UdpProtocol
+
+
+def message(request_id: int) -> bytes:
+    """A real v2c message, since the transport routes on its request id."""
+    return encode_snmp_get_v2c("public", request_id, [Oid("1.3.6.1.2.1.1.1.0")])
 
 
 @pytest.fixture
@@ -76,104 +82,108 @@ class TestTransportSendRequest:
             await transport.send_request(b"test")
 
     async def test_send_request_returns_response(self, transport):
-        """send_request sends data and returns response."""
-        mock_transport = MagicMock()
-        mock_protocol = MagicMock()
-        mock_protocol.clear = MagicMock()
-        mock_protocol.wait_response = AsyncMock(return_value=b"\x30\x00response")
+        """send_request sends data and returns the matching response."""
+        request = message(42)
+        transport.transport = MagicMock()
+        transport.protocol = _UdpProtocol()
+        transport.transport.sendto.side_effect = lambda _: transport.protocol.datagram_received(
+            request, ("192.168.1.1", 161)
+        )
 
-        transport.transport = mock_transport
-        transport.protocol = mock_protocol
+        result = await transport.send_request(request)
 
-        result = await transport.send_request(b"request")
-
-        mock_protocol.clear.assert_called_once()
-        mock_transport.sendto.assert_called_once_with(b"request")
-        assert result == b"\x30\x00response"
+        transport.transport.sendto.assert_called_once_with(request)
+        assert result == request
 
     async def test_send_request_retries_on_timeout(self, transport):
-        """send_request retries on timeout."""
-        mock_transport = MagicMock()
-        mock_protocol = MagicMock()
-        mock_protocol.clear = MagicMock()
+        """send_request retries, and a late answer still lands."""
+        transport.timeout = 0.05
+        request = message(42)
+        transport.transport = MagicMock()
+        transport.protocol = _UdpProtocol()
 
-        call_count = [0]
+        attempts = [0]
 
-        async def mock_wait():
-            call_count[0] += 1
-            if call_count[0] < 2:
-                raise asyncio.TimeoutError()
-            return b"\x30\x00response"
+        def answer_on_second(_data):
+            attempts[0] += 1
+            if attempts[0] == 2:
+                transport.protocol.datagram_received(request, ("192.168.1.1", 161))
 
-        mock_protocol.wait_response = mock_wait
+        transport.transport.sendto.side_effect = answer_on_second
 
-        transport.transport = mock_transport
-        transport.protocol = mock_protocol
-
-        result = await transport.send_request(b"request")
-
-        assert call_count[0] == 2
-        assert result == b"\x30\x00response"
+        assert await transport.send_request(request) == request
+        assert attempts[0] == 2
 
     async def test_send_request_raises_after_all_retries(self, transport):
         """send_request raises TimeoutError after all retries fail."""
-        mock_transport = MagicMock()
-        mock_protocol = MagicMock()
-        mock_protocol.clear = MagicMock()
-        mock_protocol.wait_response = AsyncMock(side_effect=asyncio.TimeoutError())
-
-        transport.transport = mock_transport
-        transport.protocol = mock_protocol
+        transport.timeout = 0.01
+        transport.transport = MagicMock()
+        transport.protocol = _UdpProtocol()
 
         with pytest.raises(TimeoutError, match="timed out after 3 attempts"):
-            await transport.send_request(b"request")
+            await transport.send_request(message(42))
+
+    async def test_concurrent_requests_each_get_their_own_response(self, transport):
+        """Two requests in flight must not be handed each other's answer."""
+        transport.transport = MagicMock()
+        transport.protocol = _UdpProtocol()
+        sent = []
+        transport.transport.sendto.side_effect = sent.append
+
+        first = asyncio.ensure_future(transport.send_request(message(1)))
+        second = asyncio.ensure_future(transport.send_request(message(2)))
+        await asyncio.sleep(0)
+
+        # Answered out of order, which is what a real agent is free to do.
+        transport.protocol.datagram_received(message(2), ("192.168.1.1", 161))
+        transport.protocol.datagram_received(message(1), ("192.168.1.1", 161))
+
+        assert await first == message(1)
+        assert await second == message(2)
+        assert len(sent) == 2
 
 
 class TestUdpProtocol:
     """Tests for _UdpProtocol class."""
 
     def test_init(self):
-        """Protocol initializes correctly."""
+        """Protocol starts with nothing outstanding."""
         proto = _UdpProtocol()
-        assert proto._response is None
-        assert not proto._event.is_set()
+        assert proto.waiters._waiters == {}
 
-    def test_datagram_received_sets_response(self):
-        """datagram_received stores response and sets event."""
+    async def test_datagram_received_resolves_the_matching_waiter(self):
+        """A datagram completes the request carrying the same id."""
         proto = _UdpProtocol()
-        proto.datagram_received(b"response", ("192.168.1.1", 161))
+        waiter = proto.register(42)
+        proto.datagram_received(message(42), ("192.168.1.1", 161))
 
-        assert proto._response == b"response"
-        assert proto._event.is_set()
+        assert await waiter == message(42)
 
-    def test_clear_resets_state(self):
-        """clear resets response and event."""
+    async def test_datagram_for_another_request_is_left_alone(self):
+        """A response nobody is waiting for must not complete someone else."""
         proto = _UdpProtocol()
-        proto._response = b"data"
-        proto._event.set()
+        waiter = proto.register(42)
+        proto.datagram_received(message(99), ("192.168.1.1", 161))
 
-        proto.clear()
+        assert not waiter.done()
 
-        assert proto._response is None
-        assert not proto._event.is_set()
-
-    async def test_wait_response_returns_data(self):
-        """wait_response returns the response data."""
+    async def test_datagram_that_is_not_snmp_is_dropped(self):
+        """Garbage on the socket must not raise out of the event loop callback."""
         proto = _UdpProtocol()
-        proto._response = b"response"
-        proto._event.set()
+        waiter = proto.register(42)
+        proto.datagram_received(b"not an snmp message", ("192.168.1.1", 161))
 
-        result = await proto.wait_response()
+        assert not waiter.done()
 
-        assert result == b"response"
-
-    async def test_wait_response_no_data_raises(self):
-        """wait_response raises when no data received."""
+    async def test_unregister_stops_delivery(self):
+        """A request that gave up does not get resolved later."""
         proto = _UdpProtocol()
-        proto._event.set()
+        waiter = proto.register(42)
+        proto.unregister(42)
+        proto.datagram_received(message(42), ("192.168.1.1", 161))
 
-        with pytest.raises(RuntimeError, match="No response"):
-            await proto.wait_response()
+        assert not waiter.done()
+        waiter.cancel()
 
 
 class TestUnreachableClassification:
@@ -201,23 +211,29 @@ class TestUnreachableClassification:
 class TestIcmpErrorFailsFast:
     """Tests that an ICMP error ends the attempt instead of waiting out the timeout."""
 
-    async def test_error_received_wakes_the_waiter(self):
-        """error_received raises from wait_response rather than blocking."""
+    async def test_error_received_wakes_every_waiter(self):
+        """ICMP names no request, so everything in flight fails at once."""
         protocol = _UdpProtocol()
-        protocol.clear()
+        first = protocol.register(1)
+        second = protocol.register(2)
         protocol.error_received(ConnectionRefusedError(111, "Connection refused"))
 
+        for waiter in (first, second):
+            with pytest.raises(OSError):
+                await asyncio.wait_for(waiter, timeout=0.1)
+
+    async def test_a_stale_error_does_not_poison_the_next_attempt(self):
+        """The failed waiters are dropped, so a later request starts clean."""
+        protocol = _UdpProtocol()
+        stale = protocol.register(1)
+        protocol.error_received(ConnectionRefusedError(111, "Connection refused"))
         with pytest.raises(OSError):
-            await asyncio.wait_for(protocol.wait_response(), timeout=0.1)
+            await stale
 
-    async def test_clear_discards_a_previous_error(self):
-        """A stale ICMP error must not poison the next attempt."""
-        protocol = _UdpProtocol()
-        protocol.error_received(ConnectionRefusedError(111, "Connection refused"))
-        protocol.clear()
-        protocol.datagram_received(b"payload", ("127.0.0.1", 161))
+        waiter = protocol.register(2)
+        protocol.datagram_received(message(2), ("127.0.0.1", 161))
 
-        assert await asyncio.wait_for(protocol.wait_response(), timeout=0.1) == b"payload"
+        assert await asyncio.wait_for(waiter, timeout=0.1) == message(2)
 
     async def test_send_request_raises_unreachable_without_burning_the_timeout(self):
         """A refused port reports UnreachableError, not TimeoutError."""
@@ -232,7 +248,7 @@ class TestIcmpErrorFailsFast:
         transport.transport.sendto.side_effect = refuse
 
         with pytest.raises(UnreachableError, match="Connection refused"):
-            await asyncio.wait_for(transport.send_request(b"req"), timeout=2.0)
+            await asyncio.wait_for(transport.send_request(message(42)), timeout=2.0)
 
         assert transport.transport.sendto.call_count == 3
 
@@ -243,4 +259,4 @@ class TestIcmpErrorFailsFast:
         transport.protocol = _UdpProtocol()
 
         with pytest.raises(TimeoutError):
-            await transport.send_request(b"req")
+            await transport.send_request(message(42))

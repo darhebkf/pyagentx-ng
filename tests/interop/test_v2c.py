@@ -1,5 +1,7 @@
 """v2c against a real agent, including the MIB layer end to end."""
 
+import asyncio
+
 from snmpkit.manager import Manager, NoSuchObjectError
 from snmpkit.mib import MibTree
 
@@ -53,3 +55,21 @@ async def test_query_by_mib_name_against_the_real_agent():
     assert named, "the agent should report at least one interface"
     assert all(name.startswith("IF-MIB::ifDescr.") for name, _ in named)
     assert any(value == "lo" for _, value in named)
+
+
+async def test_concurrent_gets_on_one_manager_each_get_their_own_answer():
+    """One socket, many requests in flight: no response may go to the wrong one."""
+    # No sysUpTime here: it moves between the two passes.
+    oids = [
+        "1.3.6.1.2.1.1.1.0",
+        "1.3.6.1.2.1.1.2.0",
+        "1.3.6.1.2.1.1.4.0",
+        "1.3.6.1.2.1.1.5.0",
+        "1.3.6.1.2.1.1.6.0",
+    ]
+    async with Manager(HOST, port=PORT, community=COMMUNITY) as mgr:
+        together = await asyncio.gather(*(mgr.get(oid) for oid in oids))
+        apart = [await mgr.get(oid) for oid in oids]
+
+    assert together == apart
+    assert len(set(together)) > 1, "identical values would hide a mismatch"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from snmpkit.core import peek_correlation_id
 from snmpkit.manager.exceptions import TimeoutError, UnreachableError
 
 logger = logging.getLogger("snmpkit.manager")
@@ -60,21 +61,18 @@ class UdpTransport:
         if self.transport is None or self.protocol is None:
             raise RuntimeError("Transport not connected")
 
+        correlation_id = peek_correlation_id(data)
         refused: OSError | None = None
 
         for attempt in range(self.retries):
+            waiter = self.protocol.register(correlation_id)
             try:
-                self.protocol.clear()
                 try:
                     self.transport.sendto(data)
                 except OSError as e:
                     raise UnreachableError(f"{self.host}:{self.port}: {e}") from e
 
-                response = await asyncio.wait_for(
-                    self.protocol.wait_response(),
-                    timeout=self.timeout,
-                )
-                return response
+                return await asyncio.wait_for(waiter, timeout=self.timeout)
 
             # asyncio.TimeoutError is the builtin, which subclasses OSError,
             # so it has to be caught before the ICMP case below.
@@ -87,38 +85,66 @@ class UdpTransport:
                 logger.debug("Unreachable on attempt %d/%d: %s", attempt + 1, self.retries, e)
                 continue
 
+            finally:
+                self.protocol.unregister(correlation_id)
+
         if refused is not None:
             raise UnreachableError(f"{self.host}:{self.port}: {refused}") from refused
         raise TimeoutError(f"Request timed out after {self.retries} attempts")
 
 
-class _UdpProtocol(asyncio.DatagramProtocol):
-    """Internal UDP protocol handler."""
+class Waiters:
+    """Requests still in flight, keyed by the id their response will carry."""
 
     def __init__(self) -> None:
-        self._response: bytes | None = None
-        self._error: OSError | None = None
-        self._event: asyncio.Event = asyncio.Event()
+        self._waiters: dict[int, asyncio.Future[bytes]] = {}
+
+    def register(self, correlation_id: int) -> asyncio.Future[bytes]:
+        waiter: asyncio.Future[bytes] = asyncio.get_running_loop().create_future()
+        self._waiters[correlation_id] = waiter
+        return waiter
+
+    def unregister(self, correlation_id: int) -> None:
+        self._waiters.pop(correlation_id, None)
+
+    def deliver(self, data: bytes) -> None:
+        try:
+            correlation_id = peek_correlation_id(data)
+        except ValueError:
+            logger.debug("Dropped a response that is not an SNMP message")
+            return
+
+        waiter = self._waiters.pop(correlation_id, None)
+        if waiter is None:
+            # A retry already took it, or it arrived after the request gave up.
+            logger.debug("Dropped response %d, nothing waiting for it", correlation_id)
+        elif not waiter.done():
+            waiter.set_result(data)
+
+    def fail_all(self, error: BaseException) -> None:
+        for waiter in self._waiters.values():
+            if not waiter.done():
+                waiter.set_exception(error)
+        self._waiters.clear()
+
+
+class _UdpProtocol(asyncio.DatagramProtocol):
+    """Internal UDP protocol handler, routing each datagram to its request."""
+
+    def __init__(self) -> None:
+        self.waiters = Waiters()
+
+    def register(self, correlation_id: int) -> asyncio.Future[bytes]:
+        return self.waiters.register(correlation_id)
+
+    def unregister(self, correlation_id: int) -> None:
+        self.waiters.unregister(correlation_id)
 
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
-        self._response = data
-        self._event.set()
+        self.waiters.deliver(data)
 
     def error_received(self, exc: Exception) -> None:
         # ICMP port/host unreachable. The OS already knows the reply cannot
-        # come, so wake the waiter instead of sitting out the whole timeout.
-        self._error = exc if isinstance(exc, OSError) else OSError(str(exc))
-        self._event.set()
-
-    def clear(self) -> None:
-        self._response = None
-        self._error = None
-        self._event.clear()
-
-    async def wait_response(self) -> bytes:
-        await self._event.wait()
-        if self._error is not None:
-            raise self._error
-        if self._response is None:
-            raise RuntimeError("No response received")
-        return self._response
+        # come, so wake the waiters instead of sitting out the whole timeout.
+        # It names no request, so everything outstanding fails.
+        self.waiters.fail_all(exc if isinstance(exc, OSError) else OSError(str(exc)))
