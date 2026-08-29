@@ -140,6 +140,10 @@ fn snmpkit_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_function(pyo3::wrap_pyfunction!(
+        snmp::bindings::password_to_privacy_key,
+        m
+    )?)?;
+    m.add_function(pyo3::wrap_pyfunction!(
         snmp::bindings::encrypt_scoped_pdu,
         m
     )?)?;

@@ -563,6 +563,22 @@ pub fn password_to_localized_key(
 }
 
 #[pyfunction]
+pub fn password_to_privacy_key(
+    py: Python<'_>,
+    password: &str,
+    engine_id: &[u8],
+    auth_protocol: &str,
+    priv_protocol: &str,
+) -> PyResult<Py<PyBytes>> {
+    let auth = parse_auth_protocol(auth_protocol)?;
+    let priv_proto = parse_priv_protocol(priv_protocol)?;
+    let key = auth::password_to_localized_key(password.as_bytes(), engine_id, auth)
+        .and_then(|key| auth::extend_localized_key(&key, priv_proto.derived_key_length(), auth))
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    Ok(PyBytes::new(py, &key).into())
+}
+
+#[pyfunction]
 pub fn encrypt_scoped_pdu(
     py: Python<'_>,
     plaintext: &[u8],

@@ -11,7 +11,7 @@ SNMPv3 adds security features missing from v1/v2c:
 | Feature | v1/v2c | v3 |
 |---------|--------|-----|
 | Authentication | Community string (plaintext) | HMAC (MD5, SHA, SHA-256, SHA-384, SHA-512) |
-| Encryption | None | DES-CBC, AES-128-CFB |
+| Encryption | None | DES-CBC, AES-CFB (128, 192, 256) |
 | Access Control | Community-based | User-based (USM) |
 | Engine Discovery | N/A | Automatic |
 
@@ -62,7 +62,9 @@ Always use authPriv in production. noAuthNoPriv provides no more security than v
 | Protocol | String | Key Size | Notes |
 |----------|--------|----------|-------|
 | DES-CBC | `"DES"` | 56-bit | Legacy only |
-| AES-128-CFB | `"AES"` | 128-bit | Recommended |
+| AES-128-CFB | `"AES"` or `"AES128"` | 128-bit | Recommended |
+| AES-192-CFB | `"AES192"` | 192-bit | Key extended per draft-blumenthal-aes-usm-04 |
+| AES-256-CFB | `"AES256"` | 256-bit | Key extended per draft-blumenthal-aes-usm-04 |
 
 <Callout type="info">
 Privacy requires authentication. You cannot use `priv_protocol` without `auth_protocol`.

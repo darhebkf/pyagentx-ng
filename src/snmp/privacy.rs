@@ -1,9 +1,11 @@
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use aes::Aes128;
+use aes::{Aes128, Aes192, Aes256};
 use cipher::block_padding::NoPadding;
-use cipher::{AsyncStreamCipher, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
+use cipher::{
+    AsyncStreamCipher, BlockCipher, BlockDecryptMut, BlockEncryptMut, KeyInit, KeyIvInit,
+};
 
 use super::usm::PrivProtocol;
 
@@ -44,10 +46,14 @@ pub fn encrypt_scoped_pdu(
 ) -> Result<(Vec<u8>, Vec<u8>), PrivError> {
     match protocol {
         PrivProtocol::Des => encrypt_des_cbc(plaintext, key, engine_boots),
-        PrivProtocol::Aes128 => encrypt_aes_cfb(plaintext, key, engine_boots, engine_time),
-        PrivProtocol::Aes192 | PrivProtocol::Aes256 => {
-            // AES-192/256 use same CFB mechanism, just longer keys
-            encrypt_aes_cfb(plaintext, key, engine_boots, engine_time)
+        PrivProtocol::Aes128 => {
+            encrypt_aes_cfb::<Aes128>(plaintext, key, engine_boots, engine_time)
+        }
+        PrivProtocol::Aes192 => {
+            encrypt_aes_cfb::<Aes192>(plaintext, key, engine_boots, engine_time)
+        }
+        PrivProtocol::Aes256 => {
+            encrypt_aes_cfb::<Aes256>(plaintext, key, engine_boots, engine_time)
         }
         PrivProtocol::None => Ok((plaintext.to_vec(), vec![])),
     }
@@ -65,10 +71,13 @@ pub fn decrypt_scoped_pdu(
     match protocol {
         PrivProtocol::Des => decrypt_des_cbc(ciphertext, key, priv_parameters),
         PrivProtocol::Aes128 => {
-            decrypt_aes_cfb(ciphertext, key, priv_parameters, engine_boots, engine_time)
+            decrypt_aes_cfb::<Aes128>(ciphertext, key, priv_parameters, engine_boots, engine_time)
         }
-        PrivProtocol::Aes192 | PrivProtocol::Aes256 => {
-            decrypt_aes_cfb(ciphertext, key, priv_parameters, engine_boots, engine_time)
+        PrivProtocol::Aes192 => {
+            decrypt_aes_cfb::<Aes192>(ciphertext, key, priv_parameters, engine_boots, engine_time)
+        }
+        PrivProtocol::Aes256 => {
+            decrypt_aes_cfb::<Aes256>(ciphertext, key, priv_parameters, engine_boots, engine_time)
         }
         PrivProtocol::None => Ok(ciphertext.to_vec()),
     }
@@ -155,17 +164,21 @@ fn decrypt_des_cbc(
     Ok(plaintext)
 }
 
-// AES-CFB-128 encryption (RFC 3826)
+// AES-CFB encryption (RFC 3826)
 //
 // IV = engine_boots (4 bytes) || engine_time (4 bytes) || local (8 bytes)
 // priv_parameters = local (8 bytes)
-fn encrypt_aes_cfb(
+fn encrypt_aes_cfb<C>(
     plaintext: &[u8],
     key: &[u8],
     engine_boots: i32,
     engine_time: i32,
-) -> Result<(Vec<u8>, Vec<u8>), PrivError> {
-    if key.len() < 16 {
+) -> Result<(Vec<u8>, Vec<u8>), PrivError>
+where
+    C: BlockEncryptMut + BlockCipher + KeyInit,
+{
+    let key_length = C::key_size();
+    if key.len() < key_length {
         return Err(PrivError::InvalidKeyLength);
     }
 
@@ -179,10 +192,8 @@ fn encrypt_aes_cfb(
     iv[4..8].copy_from_slice(&engine_time.to_be_bytes());
     iv[8..].copy_from_slice(&local_bytes);
 
-    // Encrypt with AES-128-CFB
-    type AesCfbEnc = cfb_mode::Encryptor<Aes128>;
     let mut ciphertext = plaintext.to_vec();
-    AesCfbEnc::new_from_slices(&key[..16], &iv)
+    cfb_mode::Encryptor::<C>::new_from_slices(&key[..key_length], &iv)
         .map_err(|_| PrivError::InvalidKeyLength)?
         .encrypt_b2b(plaintext, &mut ciphertext)
         .map_err(|_| PrivError::EncryptionFailed)?;
@@ -190,15 +201,19 @@ fn encrypt_aes_cfb(
     Ok((ciphertext, local_bytes.to_vec()))
 }
 
-// AES-CFB-128 decryption (RFC 3826)
-fn decrypt_aes_cfb(
+// AES-CFB decryption (RFC 3826)
+fn decrypt_aes_cfb<C>(
     ciphertext: &[u8],
     key: &[u8],
     priv_parameters: &[u8],
     engine_boots: i32,
     engine_time: i32,
-) -> Result<Vec<u8>, PrivError> {
-    if key.len() < 16 {
+) -> Result<Vec<u8>, PrivError>
+where
+    C: BlockEncryptMut + BlockCipher + KeyInit,
+{
+    let key_length = C::key_size();
+    if key.len() < key_length {
         return Err(PrivError::InvalidKeyLength);
     }
     if priv_parameters.len() != 8 {
@@ -211,9 +226,8 @@ fn decrypt_aes_cfb(
     iv[4..8].copy_from_slice(&engine_time.to_be_bytes());
     iv[8..].copy_from_slice(priv_parameters);
 
-    type AesCfbDec = cfb_mode::Decryptor<Aes128>;
     let mut plaintext = ciphertext.to_vec();
-    AesCfbDec::new_from_slices(&key[..16], &iv)
+    cfb_mode::Decryptor::<C>::new_from_slices(&key[..key_length], &iv)
         .map_err(|_| PrivError::InvalidKeyLength)?
         .decrypt_b2b(ciphertext, &mut plaintext)
         .map_err(|_| PrivError::DecryptionFailed)?;
@@ -255,11 +269,13 @@ mod tests {
         let key = [0x42u8; 16];
         let plaintext = b"Hello SNMP World!";
 
-        let (ciphertext, priv_params) = encrypt_aes_cfb(plaintext, &key, 100, 200).unwrap();
+        let (ciphertext, priv_params) =
+            encrypt_aes_cfb::<Aes128>(plaintext, &key, 100, 200).unwrap();
         assert_eq!(priv_params.len(), 8);
         assert_ne!(ciphertext, plaintext);
 
-        let decrypted = decrypt_aes_cfb(&ciphertext, &key, &priv_params, 100, 200).unwrap();
+        let decrypted =
+            decrypt_aes_cfb::<Aes128>(&ciphertext, &key, &priv_params, 100, 200).unwrap();
         assert_eq!(decrypted, plaintext);
     }
 
@@ -295,6 +311,75 @@ mod tests {
     }
 
     #[test]
+    fn test_encrypt_decrypt_scoped_pdu_aes192() {
+        let plaintext = b"scoped pdu contents".to_vec();
+        let key = vec![0x42u8; 24];
+
+        let (ciphertext, priv_params) =
+            encrypt_scoped_pdu(&plaintext, &key, 1, 100, PrivProtocol::Aes192).unwrap();
+        let decrypted = decrypt_scoped_pdu(
+            &ciphertext,
+            &key,
+            &priv_params,
+            1,
+            100,
+            PrivProtocol::Aes192,
+        )
+        .unwrap();
+
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_encrypt_decrypt_scoped_pdu_aes256() {
+        let plaintext = b"scoped pdu contents".to_vec();
+        let key = vec![0x42u8; 32];
+
+        let (ciphertext, priv_params) =
+            encrypt_scoped_pdu(&plaintext, &key, 1, 100, PrivProtocol::Aes256).unwrap();
+        let decrypted = decrypt_scoped_pdu(
+            &ciphertext,
+            &key,
+            &priv_params,
+            1,
+            100,
+            PrivProtocol::Aes256,
+        )
+        .unwrap();
+
+        assert_eq!(decrypted, plaintext);
+    }
+
+    // AES-192 and AES-256 must use the whole key, not the first 16 bytes
+    #[test]
+    fn test_longer_keys_are_not_truncated_to_aes128() {
+        let plaintext = b"scoped pdu contents".to_vec();
+        let mut key = vec![0x42u8; 32];
+
+        let (ciphertext, priv_params) =
+            encrypt_scoped_pdu(&plaintext, &key, 1, 100, PrivProtocol::Aes256).unwrap();
+
+        key[16..].fill(0x43);
+        let decrypted = decrypt_scoped_pdu(
+            &ciphertext,
+            &key,
+            &priv_params,
+            1,
+            100,
+            PrivProtocol::Aes256,
+        )
+        .unwrap();
+
+        assert_ne!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_aes192_and_aes256_reject_short_keys() {
+        assert!(encrypt_scoped_pdu(b"test", &[0u8; 16], 0, 0, PrivProtocol::Aes192).is_err());
+        assert!(encrypt_scoped_pdu(b"test", &[0u8; 24], 0, 0, PrivProtocol::Aes256).is_err());
+    }
+
+    #[test]
     fn test_none_protocol_passthrough() {
         let plaintext = b"no encryption";
         let (ciphertext, params) =
@@ -310,7 +395,7 @@ mod tests {
 
     #[test]
     fn test_aes_invalid_key_length() {
-        assert!(encrypt_aes_cfb(b"test", &[0u8; 8], 0, 0).is_err());
+        assert!(encrypt_aes_cfb::<Aes128>(b"test", &[0u8; 8], 0, 0).is_err());
     }
 
     #[test]

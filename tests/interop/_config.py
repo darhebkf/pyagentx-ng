@@ -17,4 +17,6 @@ V3_USERS = [
     ("authPrivAesUser", "SHA", "authprivpass123", "AES", "privpass123456"),
     ("authPrivDesUser", "MD5", "md5despass123", "DES", "despass123456"),
     ("sha256User", "SHA256", "sha256pass123", "AES", "privpass123456"),
+    ("aes192User", "SHA", "aes192pass123", "AES192", "privpass123456"),
+    ("aes256User", "SHA", "aes256pass123", "AES256", "privpass123456"),
 ]

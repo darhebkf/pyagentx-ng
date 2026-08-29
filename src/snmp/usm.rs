@@ -65,6 +65,20 @@ impl PrivProtocol {
         }
     }
 
+    // Key material USM derives before the cipher takes its key
+    //
+    // DES needs 16 bytes, 8 for the key and 8 for the pre-IV (RFC 3414 8.1.1.1).
+    // AES takes the first key_length() bytes (draft-blumenthal-aes-usm-04 3.1.2.1).
+    pub fn derived_key_length(&self) -> usize {
+        match self {
+            PrivProtocol::None => 0,
+            PrivProtocol::Des => 16,
+            PrivProtocol::Aes128 => 16,
+            PrivProtocol::Aes192 => 24,
+            PrivProtocol::Aes256 => 32,
+        }
+    }
+
     pub fn iv_length(&self) -> usize {
         match self {
             PrivProtocol::None => 0,
@@ -280,6 +294,9 @@ mod tests {
         assert_eq!(PrivProtocol::Des.key_length(), 8);
         assert_eq!(PrivProtocol::Aes128.key_length(), 16);
         assert_eq!(PrivProtocol::Aes256.key_length(), 32);
+        assert_eq!(PrivProtocol::Des.derived_key_length(), 16);
+        assert_eq!(PrivProtocol::Aes192.derived_key_length(), 24);
+        assert_eq!(PrivProtocol::Aes256.derived_key_length(), 32);
     }
 
     #[test]

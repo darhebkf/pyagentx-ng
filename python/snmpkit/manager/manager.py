@@ -32,6 +32,7 @@ from snmpkit.core import (
     encode_snmp_trap_v2c,
     encode_snmp_trap_v3_secure,
     password_to_localized_key,
+    password_to_privacy_key,
 )
 from snmpkit.manager.exceptions import (
     AuthenticationError,
@@ -217,12 +218,14 @@ class Manager:
             logger.debug("Auth key derived (%s)", self.auth_protocol)
 
         if self.priv_protocol and self.priv_password:
-            # Privacy key uses auth protocol for derivation
+            # Privacy key uses auth protocol for derivation, extended when the
+            # cipher needs more key material than the hash produces
             auth_proto = self.auth_protocol or "SHA"
-            self._priv_key = password_to_localized_key(
+            self._priv_key = password_to_privacy_key(
                 self.priv_password,
                 self._engine_id,
                 auth_proto,
+                self.priv_protocol,
             )
             logger.debug("Priv key derived (%s)", self.priv_protocol)
 

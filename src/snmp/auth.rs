@@ -107,6 +107,49 @@ pub fn password_to_localized_key(
     localize_key(&key, engine_id, protocol)
 }
 
+// Extend a localized key to key_length bytes (draft-blumenthal-aes-usm-04 3.1.2.1)
+//
+// AES-192 and AES-256 need more key material than the authentication hash
+// produces. Net-SNMP applies this variant unless the Reeder flag is set, so it
+// is the one that interoperates by default.
+pub fn extend_localized_key(
+    key: &[u8],
+    key_length: usize,
+    protocol: AuthProtocol,
+) -> Result<Vec<u8>, AuthError> {
+    if protocol == AuthProtocol::None {
+        return Err(AuthError::UnsupportedProtocol);
+    }
+
+    let mut extended = key.to_vec();
+    while extended.len() < key_length {
+        let digest = hash(&extended, protocol);
+        let take = digest.len().min(key_length - extended.len());
+        extended.extend_from_slice(&digest[..take]);
+    }
+    extended.truncate(key_length);
+
+    Ok(extended)
+}
+
+fn hash(data: &[u8], protocol: AuthProtocol) -> Vec<u8> {
+    match protocol {
+        AuthProtocol::Md5 => hash_digest::<md5::Md5>(data),
+        AuthProtocol::Sha => hash_digest::<sha1::Sha1>(data),
+        AuthProtocol::Sha224 => hash_digest::<sha2::Sha224>(data),
+        AuthProtocol::Sha256 => hash_digest::<sha2::Sha256>(data),
+        AuthProtocol::Sha384 => hash_digest::<sha2::Sha384>(data),
+        AuthProtocol::Sha512 => hash_digest::<sha2::Sha512>(data),
+        AuthProtocol::None => unreachable!(),
+    }
+}
+
+fn hash_digest<D: Digest>(data: &[u8]) -> Vec<u8> {
+    let mut hasher = D::new();
+    hasher.update(data);
+    hasher.finalize().to_vec()
+}
+
 // Authenticate outgoing message (RFC 3414 Section 6)
 //
 // 1. Zero out auth_parameters field
@@ -282,9 +325,39 @@ mod tests {
         verify_authentication(&message, auth_offset, &key, AuthProtocol::Sha256).unwrap();
     }
 
+    // draft-blumenthal-aes-usm-04 A.1 - Key extension to 256 bits for "maplesyrup"
+    #[test]
+    fn test_extend_localized_key_aes256() {
+        let key = hex!("6695febc9288e36282235fc7151f128497b38f3f");
+        let extended = extend_localized_key(&key, 32, AuthProtocol::Sha).unwrap();
+        assert_eq!(
+            extended,
+            hex!("6695febc9288e36282235fc7151f128497b38f3f505e07eb9af25568fa1f5dbe")
+        );
+    }
+
+    // AES-192 stops four bytes into the same appended hash
+    #[test]
+    fn test_extend_localized_key_aes192() {
+        let key = hex!("6695febc9288e36282235fc7151f128497b38f3f");
+        let extended = extend_localized_key(&key, 24, AuthProtocol::Sha).unwrap();
+        assert_eq!(
+            extended,
+            hex!("6695febc9288e36282235fc7151f128497b38f3f505e07eb")
+        );
+    }
+
+    #[test]
+    fn test_extend_localized_key_already_long_enough() {
+        let key = vec![0x42u8; 32];
+        let extended = extend_localized_key(&key, 16, AuthProtocol::Sha).unwrap();
+        assert_eq!(extended, vec![0x42u8; 16]);
+    }
+
     #[test]
     fn test_none_protocol_returns_error() {
         assert!(password_to_key(b"test", AuthProtocol::None).is_err());
         assert!(localize_key(&[0; 16], &[0; 12], AuthProtocol::None).is_err());
+        assert!(extend_localized_key(&[0; 20], 32, AuthProtocol::None).is_err());
     }
 }
